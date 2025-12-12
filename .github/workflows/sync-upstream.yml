@@ -1,0 +1,60 @@
+name: sync-upstream
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream and fetch
+        run: |
+          git remote add upstream https://github.com/OpenSignLabs/OpenSign.git || true
+          git fetch upstream --prune
+          git fetch origin --prune
+
+      - name: Check if upstream/staging has new commits
+        id: check
+        run: |
+          AHEAD=$(git rev-list --count origin/staging..upstream/staging)
+          echo "ahead=$AHEAD" >> $GITHUB_OUTPUT
+          echo "Upstream is ahead by: $AHEAD commits"
+
+      - name: Stop if no changes
+        if: steps.check.outputs.ahead == '0'
+        run: echo "No upstream updates."
+
+      - name: Merge upstream/staging into your staging
+        if: steps.check.outputs.ahead != '0'
+        run: |
+          git checkout staging
+          git pull origin staging
+          git merge --no-edit upstream/staging
+          git push origin staging
+
+      - name: Create PR staging -> main
+        if: steps.check.outputs.ahead != '0'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: sync/upstream-staging
+          title: "Sync upstream staging"
+          body: |
+            Automated PR to bring OpenSignLabs/OpenSign (staging) into this fork.
+          base: main
+          delete-branch: true

@@ -1,0 +1,53 @@
+name: deploy-to-aks
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_sha:
+        description: "Commit SHA tag to deploy (must exist in ACR)"
+        required: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    env:
+      RG: fiva-cont-app
+      AKS: prod-fiva
+      NAMESPACE: opensign
+
+      ACR_LOGIN_SERVER: fivacontapp.azurecr.io
+      SERVER_IMAGE: fiva-opensign-server
+      CLIENT_IMAGE: fiva-opensign-client
+
+      SERVER_DEPLOY: opensign-server
+      SERVER_CONTAINER: server
+      CLIENT_DEPLOY: opensign-client
+      CLIENT_CONTAINER: client
+
+    steps:
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS credentials
+        run: az aks get-credentials -g $RG -n $AKS --overwrite-existing
+
+      - name: Deploy images
+        run: |
+          SHA="${{ inputs.image_sha }}"
+
+          kubectl -n $NAMESPACE set image deploy/$SERVER_DEPLOY \
+            $SERVER_CONTAINER=$ACR_LOGIN_SERVER/$SERVER_IMAGE:$SHA
+
+          kubectl -n $NAMESPACE set image deploy/$CLIENT_DEPLOY \
+            $CLIENT_CONTAINER=$ACR_LOGIN_SERVER/$CLIENT_IMAGE:$SHA
+
+          kubectl -n $NAMESPACE rollout status deploy/$SERVER_DEPLOY
+          kubectl -n $NAMESPACE rollout status deploy/$CLIENT_DEPLOY
