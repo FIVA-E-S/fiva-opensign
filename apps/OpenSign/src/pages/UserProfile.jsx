@@ -86,7 +86,6 @@ function UserProfile() {
     if (!res) {
       setIsLoader(true);
       try {
-      try {
         await Parse.Cloud.run("updateuserprofile", {
           name: name,
           mailDisplaySender: mailDisplaySender,
