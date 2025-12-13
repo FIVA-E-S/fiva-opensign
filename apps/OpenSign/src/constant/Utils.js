@@ -950,6 +950,12 @@ export const createDocument = async (
       return { status: "error", id: "only-15-reminder-allowed" };
     }
     try {
+      // =========================================================================
+      // [ENDPOINT] CREATE DOCUMENT (Direct Class Creation)
+      // This is the endpoint used to create a document: POST /classes/contracts_Document
+      // Note: It is NOT a Cloud Function. It creates a row directly in the database.
+      // You must construct the 'data' object exactly as done above (mapping template fields).
+      // =========================================================================
       const res = await axios.post(
         `${localStorage.getItem("baseUrl")}classes/contracts_Document`,
         data,

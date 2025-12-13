@@ -135,4 +135,6 @@ Parse.Cloud.define('managesign', manageSign);
 Parse.Cloud.define('getdefaultsignature', getSignature);
 Parse.Cloud.define('updateemailtemplates', updateEmailTemplates);
 Parse.Cloud.define('triggerevent', triggerEvent);
+import createDocument from './parsefunction/createDocument.js';
+Parse.Cloud.define('createDocument', createDocument);
 Parse.Cloud.define('updateuserprofile', updateUserProfile);
