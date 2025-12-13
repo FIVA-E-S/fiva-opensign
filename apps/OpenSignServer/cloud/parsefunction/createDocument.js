@@ -1,3 +1,6 @@
+import sendmailv3 from './sendMailv3.js';
+import { mailTemplate, replaceMailVaribles } from '../../Utils.js';
+
 export default async function createDocument(request) {
   const { templateId, signers, title } = request.params;
 
@@ -13,10 +16,8 @@ export default async function createDocument(request) {
     // 1. Fetch Template
     const templateQuery = new Parse.Query('contracts_Template');
     templateQuery.equalTo('objectId', templateId);
-    // We might want to check permissions, but for now assuming the user has access if they have the ID
-    // or we can check if the user is the creator or part of the org.
-    // For simplicity, we use useMasterKey to fetch the template, but we should be careful.
-    // Ideally: templateQuery.equalTo('CreatedBy', request.user); or similar if templates are private.
+    templateQuery.include('ExtUserPtr');
+    templateQuery.include('ExtUserPtr.TenantId');
     const template = await templateQuery.first({ useMasterKey: true });
 
     if (!template) {
@@ -80,7 +81,109 @@ export default async function createDocument(request) {
     // 4. Save Document
     const savedDoc = await doc.save(null, { useMasterKey: true });
     
-    // 5. Return result
+    // 5. Send Emails
+    try {
+        const publicUrl = request.headers.public_url;
+        if (publicUrl) {
+            const baseUrl = new URL(publicUrl);
+            const hostUrl = baseUrl.origin;
+
+            let signerMail = placeholders;
+            if (doc.get('SendinOrder')) {
+                signerMail = signerMail.slice(0, 1); // Only first signer
+            }
+
+            // Sender Details
+            const senderName = request.user.get('Name') || request.user.get('username');
+            const senderEmail = request.user.get('Email') || request.user.get('email');
+            const orgName = _template.ExtUserPtr?.Company || "";
+
+            // Calculate Expiry
+            const timeToCompleteDays = doc.get('TimeToCompleteDays') || 15;
+            const ExpireDate = new Date(savedDoc.createdAt);
+            ExpireDate.setDate(ExpireDate.getDate() + timeToCompleteDays);
+            const localExpireDate = ExpireDate.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+
+            for (const signer of signerMail) {
+                if (!signer.email) continue;
+
+                // Construct Sign URL
+                const signerObjId = signer.signerObjId || "";
+                let encodeBase64;
+                if (signerObjId) {
+                     encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}/${signerObjId}`).toString('base64');
+                } else {
+                     encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}`).toString('base64');
+                }
+                
+                const signPdf = `${hostUrl}/login/${encodeBase64}`;
+
+                // Prepare Mail Params
+                const mailparam = {
+                    senderName: senderName,
+                    note: doc.get('Note') || '',
+                    senderMail: senderEmail,
+                    title: doc.get('Name'),
+                    organization: orgName,
+                    localExpireDate: localExpireDate,
+                    signingUrl: signPdf,
+                };
+
+                // Template substitution
+                let subject = _template.ExtUserPtr?.TenantId?.RequestSubject;
+                let body = _template.ExtUserPtr?.TenantId?.RequestBody;
+                
+                let finalSubject, finalBody;
+
+                if (subject && body) {
+                    const replacedRequestBody = body.replace(/"/g, "'");
+                    const htmlReqBody = "<html><head><meta http-equiv='Content-Type' content='text/html; charset=UTF-8' /></head><body>" + replacedRequestBody + "</body></html>";
+                    
+                    const variables = {
+                        document_title: doc.get('Name'),
+                        note: doc.get('Note') || '',
+                        sender_name: senderName,
+                        sender_mail: senderEmail,
+                        sender_phone: _template.ExtUserPtr?.Phone || '',
+                        receiver_name: signer.Name || '', // Name might not be in placeholder
+                        receiver_email: signer.email,
+                        receiver_phone: signer.Phone || '',
+                        expiry_date: localExpireDate,
+                        company_name: orgName,
+                        signing_url: signPdf,
+                    };
+                    const replaceVar = replaceMailVaribles(subject, htmlReqBody, variables);
+                    finalSubject = replaceVar.subject;
+                    finalBody = replaceVar.body;
+                } else {
+                    const templateRes = mailTemplate(mailparam);
+                    finalSubject = templateRes.subject;
+                    finalBody = templateRes.body;
+                }
+                
+                const params = {
+                    recipient: signer.email,
+                    subject: finalSubject,
+                    from: senderEmail,
+                    replyto: senderEmail,
+                    html: finalBody,
+                    extUserId: request.user.id
+                };
+
+                // Call sendmailv3
+                await sendmailv3({ params: params, user: request.user });
+            }
+        } else {
+            console.log("Skipping email: public_url header missing");
+        }
+    } catch (e) {
+        console.error("Error sending email:", e);
+        // We do not throw here to avoid rolling back the document creation, 
+        // or we could throw if email is critical. 
+        // For now, let's log it.
+    }
+
+    // 6. Return result
     return {
         status: "success",
         objectId: savedDoc.id,
