@@ -93,12 +93,33 @@ function CustomizeMail(props) {
             {
                 isCustomize && (
                   <>
+                    <div className="mb-2">
+                      <label className="text-sm ml-2">
+                        {t("sender-name", { defaultValue: "Sender name" })}{" "}
+                        <Tooltip message={t("sender-name-help", { defaultValue: "Name displayed as the sender of the email" })} />
+                      </label>
+                      <input
+                        value={props.senderName}
+                        onChange={(e) => {
+                          props.setSenderName(e.target.value);
+                          if (props.setSenderNameGlobal) {
+                            props.setSenderNameGlobal(e.target.value);
+                          }
+                        }}
+                        placeholder={t("sender-name-placeholder", { defaultValue: "e.g. Tramitaciones Energéticas" })}
+                        className="op-input op-input-bordered op-input-sm focus:outline-none hover:border-base-content w-full text-xs"
+                      />
+                    </div>
                     <EmailBody
                       editorRef={editorRef}
                       requestBody={props?.customizeMail.body}
                       requestSubject={props?.customizeMail.subject}
                       handleOnchangeRequest={handleOnchangeRequest}
+                      handleOnchangeRequest={handleOnchangeRequest}
                       setCustomizeMail={props?.setCustomizeMail}
+                      senderName={props?.senderName}
+                      setSenderName={props?.setSenderName}
+                      setSenderNameGlobal={props?.setSenderNameGlobal}
                     />
                     <div
                       className="flex justify-end items-center gap-1 mt-2 op-link op-link-primary"
