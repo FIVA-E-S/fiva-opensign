@@ -1,4 +1,5 @@
 import sendmailv3 from './sendMailv3.js';
+import savecontact from './savecontact.js';
 import { mailTemplate, replaceMailVaribles } from '../../Utils.js';
 
 export default async function createDocument(request) {
@@ -59,24 +60,82 @@ export default async function createDocument(request) {
 
     // 3. Handle Placeholders & Signers
     let placeholders = _template.Placeholders || [];
+    let documentSigners = []; // To store the signers for the document object (contracts_Contactbook pointers)
 
     if (signers && Array.isArray(signers)) {
       // Map input signers to placeholders
-      placeholders = placeholders.map(p => {
+      placeholders = await Promise.all(placeholders.map(async (p) => {
         // Find signer by Role (case insensitive)
         const signerMatch = signers.find(s => s.role && s.role.toLowerCase() === p.Role.toLowerCase());
         if (signerMatch) {
-            // Update placeholder with signer info
-            return {
-                ...p,
-                email: signerMatch.email,
-                // We preserve other placeholder properties like widget positions
-            };
+            // Ensure contact exists
+            let contactId;
+            let contactObj;
+            
+            try {
+                // Try to create contact
+                const contactReq = {
+                    params: {
+                        name: signerMatch.name || "",
+                        email: signerMatch.email,
+                        // Add other fields if available
+                    },
+                    user: request.user
+                };
+                const contactRes = await savecontact(contactReq);
+                contactId = contactRes.objectId;
+                contactObj = contactRes;
+            } catch (e) {
+                // If duplicate, fetch existing
+                 const query = new Parse.Query('contracts_Contactbook');
+                 query.equalTo('CreatedBy', request.user);
+                 query.notEqualTo('IsDeleted', true);
+                 query.equalTo('Email', signerMatch.email);
+                 const existingContact = await query.first({ useMasterKey: true });
+                 if (existingContact) {
+                     contactId = existingContact.id;
+                     contactObj = existingContact.toJSON();
+                 } else {
+                     console.error("Failed to create or find contact for", signerMatch.email, e);
+                     // Fallback: proceed without contact ID (link generation will fail for this signer)
+                 }
+            }
+
+            if (contactId) {
+                // Add to document signers list if not already present
+                if (!documentSigners.find(ds => ds.objectId === contactId)) {
+                    documentSigners.push({
+                        __type: 'Pointer',
+                        className: 'contracts_Contactbook',
+                        objectId: contactId
+                    });
+                }
+
+                return {
+                    ...p,
+                    email: signerMatch.email,
+                    signerObjId: contactId,
+                    signerPtr: {
+                        __type: 'Pointer',
+                        className: 'contracts_Contactbook',
+                        objectId: contactId
+                    }
+                };
+            } else {
+                 return {
+                    ...p,
+                    email: signerMatch.email
+                };
+            }
         }
         return p;
-      });
+      }));
     }
+    
     doc.set('Placeholders', placeholders);
+    if (documentSigners.length > 0) {
+        doc.set('Signers', documentSigners);
+    }
 
     // 4. Save Document
     const savedDoc = await doc.save(null, { useMasterKey: true });
@@ -107,17 +166,19 @@ export default async function createDocument(request) {
             for (const signer of signerMail) {
                 if (!signer.email) continue;
 
-                // Construct Sign URL
-                const signerObjId = signer.signerObjId || "";
-                let encodeBase64;
+                // Construct Sign URL (Direct Link)
+                // Format: /load/recipientSignPdf/:docId/:contactBookId
+                const signerObjId = signer.signerObjId;
+                
+                let signPdf;
                 if (signerObjId) {
-                     encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}/${signerObjId}`).toString('base64');
+                     signPdf = `${hostUrl}/load/recipientSignPdf/${savedDoc.id}/${signerObjId}`;
                 } else {
-                     encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}`).toString('base64');
+                     // Fallback to login link if no contact ID (should not happen if contact creation worked)
+                     const encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}`).toString('base64');
+                     signPdf = `${hostUrl}/login/${encodeBase64}`;
                 }
                 
-                const signPdf = `${hostUrl}/login/${encodeBase64}`;
-
                 // Prepare Mail Params
                 const mailparam = {
                     senderName: senderName,
@@ -178,9 +239,6 @@ export default async function createDocument(request) {
         }
     } catch (e) {
         console.error("Error sending email:", e);
-        // We do not throw here to avoid rolling back the document creation, 
-        // or we could throw if email is critical. 
-        // For now, let's log it.
     }
 
     // 6. Return result
