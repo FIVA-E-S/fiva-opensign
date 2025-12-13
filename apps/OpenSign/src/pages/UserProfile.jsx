@@ -336,7 +336,7 @@ function UserProfile() {
                   editmode ? "py-1.5" : "py-2"
                 }`}
               >
-                <span className="font-semibold">{t("name")}:</span>{" "}
+                <span className="font-semibold">{t("sender-name", { defaultValue: "Sender name" })}:</span>{" "}
                 {editmode ? (
                   <input
                     type="text"

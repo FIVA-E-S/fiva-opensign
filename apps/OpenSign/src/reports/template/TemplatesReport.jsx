@@ -1598,7 +1598,6 @@ const TemplatesReport = (props) => {
           handleShareList={handleShareList}
           setDocumentDetails={setDocumentDetails}
           // ✅ optional: lets CustomizeMail also send "from" if you update it
-          senderName={senderName}
         />
         
         <ModalUi
