@@ -10,7 +10,7 @@ export default async function triggerEvent(request) {
   const appId = serverAppId;
   try {
     const docQuery = new Parse.Query('contracts_Document');
-    docQuery.select(['Name', 'IsEnableOTP', 'SignedUrl', 'AuditTrail']);
+    docQuery.select(['Name', 'IsEnableOTP', 'SignedUrl', 'AuditTrail', 'WebhookUrl']);
     const docRes = await docQuery.get(docId, { useMasterKey: true });
     const _docRes = docRes && docRes?.toJSON();
     const isEnableOTP = docRes?.get('IsEnableOTP') || false;
@@ -53,6 +53,22 @@ export default async function triggerEvent(request) {
         updateDoc.id = docRes.id;
         updateDoc.set('AuditTrail', [...auditTrail, newEntry]);
         await updateDoc.save(null, { useMasterKey: true });
+        
+        // Trigger Webhook (Viewed)
+        const webhookUrl = docRes.get('WebhookUrl');
+        if (webhookUrl) {
+            try {
+                await axios.post(webhookUrl, {
+                    event: 'viewed',
+                    document_id: docId,
+                    contact_id: contactId,
+                    status: 'viewed',
+                    timestamp: date
+                });
+            } catch (e) {
+                console.error("Error sending webhook (viewed):", e);
+            }
+        }
       }
     }
 

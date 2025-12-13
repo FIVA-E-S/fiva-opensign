@@ -1,9 +1,10 @@
 import sendmailv3 from './sendMailv3.js';
 import savecontact from './savecontact.js';
 import { mailTemplate, replaceMailVaribles } from '../../Utils.js';
+import axios from 'axios';
 
 export default async function createDocument(request) {
-  const { templateId, signers, title } = request.params;
+  const { templateId, signers, title, webhookUrl } = request.params;
 
   if (!request.user) {
     throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'User not authenticated');
@@ -46,6 +47,10 @@ export default async function createDocument(request) {
     doc.set('IsTourEnabled', _template.IsTourEnabled || false);
     doc.set('AllowModifications', _template.AllowModifications || false);
     doc.set('DocSentAt', new Date());
+    
+    if (webhookUrl) {
+        doc.set('WebhookUrl', webhookUrl);
+    }
 
     // Copy complex fields if they exist
     if (_template.SignatureType) doc.set('SignatureType', _template.SignatureType);
@@ -240,8 +245,22 @@ export default async function createDocument(request) {
     } catch (e) {
         console.error("Error sending email:", e);
     }
+    
+    // 6. Trigger Webhook (Sent)
+    if (webhookUrl) {
+        try {
+            await axios.post(webhookUrl, {
+                event: 'sent',
+                document_id: savedDoc.id,
+                status: 'sent',
+                timestamp: new Date().toISOString()
+            });
+        } catch (e) {
+            console.error("Error sending webhook:", e);
+        }
+    }
 
-    // 6. Return result
+    // 7. Return result
     return {
         status: "success",
         objectId: savedDoc.id,
