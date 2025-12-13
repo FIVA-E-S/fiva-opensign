@@ -478,6 +478,11 @@ async function PDF(req) {
           isCompleted ? documentHash : undefined
         );
         
+          await sendMailsaveCertifcate(doc, pfx, isCustomMail, mailProvider, `signed_${name}`);
+        } else {
+          unlinkFile(pfxname);
+        }
+
         // Trigger Webhook (Signed/Completed)
         const webhookUrl = resDoc.get('WebhookUrl');
         if (webhookUrl) {
@@ -494,16 +499,6 @@ async function PDF(req) {
                 console.error("Error sending webhook (signed):", e);
             }
         }
-
-        sendNotifyMail(_resDoc, signUser, mailProvider, publicUrl);
-        saveFileUsage(pdfSize, data.imageUrl, _resDoc?.CreatedBy?.objectId);
-        if (updatedDoc && updatedDoc.isCompleted) {
-          const hashForDoc = documentHash || updatedDoc?.DocumentHash;
-          const doc = { ..._resDoc, AuditTrail: updatedDoc.AuditTrail, SignedUrl: data.imageUrl };
-          if (hashForDoc) {
-            doc.DocumentHash = hashForDoc;
-          }
-          sendMailsaveCertifcate(doc, pfx, isCustomMail, mailProvider, `signed_${name}`);
         } else {
           unlinkFile(pfxname);
         }
