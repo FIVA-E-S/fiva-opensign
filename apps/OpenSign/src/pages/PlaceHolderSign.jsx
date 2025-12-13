@@ -1305,7 +1305,7 @@ function PlaceHolderSign() {
           data = {
             RequestBody: htmlReqBody,
             RequestSubject: requestSubject,
-            SenderName: senderNameVal
+            SenderName: senderNameVal,
             SendMail: true
           };
         } else if (
@@ -1315,7 +1315,7 @@ function PlaceHolderSign() {
           data = {
             RequestBody: tenantMailTemplate?.body,
             RequestSubject: tenantMailTemplate?.subject,
-            SenderName: senderNameVal
+            SenderName: senderNameVal,
             SendMail: true
           };
         } else {
