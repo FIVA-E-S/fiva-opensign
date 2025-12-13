@@ -86,17 +86,16 @@ function UserProfile() {
     if (!res) {
       setIsLoader(true);
       try {
-        const userQuery = Parse.Object.extend("_User");
-        const query = new Parse.Query(userQuery);
-        await query.get(UserProfile.objectId).then((object) => {
-          object.set("name", name);
-          object.set("mailDisplaySender", mailDisplaySender);
-          object.set("ProfilePic", Image);
-          object.set("phone", phn || "");
-          object.save().then(
+      try {
+        await Parse.Cloud.run("updateuserprofile", {
+          name: name,
+          mailDisplaySender: mailDisplaySender,
+          ProfilePic: Image,
+          phone: phn || ""
+        }).then(
             async (response) => {
               if (response) {
-                let res = response.toJSON();
+                let res = response;
                 let rr = JSON.stringify(res);
                 localStorage.setItem("UserInformation", rr);
                 SetName(res.name);
@@ -121,7 +120,6 @@ function UserProfile() {
               setIsLoader(false);
             }
           );
-        });
       } catch (error) {
         console.log("err", error);
       }

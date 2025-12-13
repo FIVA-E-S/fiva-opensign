@@ -115,7 +115,6 @@ function CustomizeMail(props) {
                       requestBody={props?.customizeMail.body}
                       requestSubject={props?.customizeMail.subject}
                       handleOnchangeRequest={handleOnchangeRequest}
-                      handleOnchangeRequest={handleOnchangeRequest}
                       setCustomizeMail={props?.setCustomizeMail}
                       senderName={props?.senderName}
                       setSenderName={props?.setSenderName}
