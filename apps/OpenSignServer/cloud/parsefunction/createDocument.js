@@ -246,7 +246,9 @@ export default async function createDocument(request) {
         console.error("Error sending email:", e);
     }
     
-    // 6. Trigger Webhook (Sent)
+    // 6. Trigger Webhook (Sent) - REMOVED to avoid race condition
+    // The calling server (Fiva) sets status to 'sent' upon receiving the response.
+    /*
     if (webhookUrl) {
         try {
             await axios.post(webhookUrl, {
@@ -259,6 +261,7 @@ export default async function createDocument(request) {
             console.error("Error sending webhook:", e);
         }
     }
+    */
 
     // 7. Return result
     return {
