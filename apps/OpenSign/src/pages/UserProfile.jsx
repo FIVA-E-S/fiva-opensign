@@ -31,6 +31,7 @@ function UserProfile() {
   const [parseAppId] = useState(localStorage.getItem("parseAppId"));
   const [editmode, setEditMode] = useState(false);
   const [name, SetName] = useState(localStorage.getItem("username"));
+  const [mailDisplaySender, setMailDisplaySender] = useState("");
   const [Phone, SetPhone] = useState(UserProfile && UserProfile.phone);
   const [Image, setImage] = useState(localStorage.getItem("profileImg"));
   const [isLoader, setIsLoader] = useState(false);
@@ -56,6 +57,7 @@ function UserProfile() {
     setIsLoader(true);
     const currentUser = JSON.parse(JSON.stringify(Parse.User.current()));
     let isEmailVerified = currentUser?.emailVerified || false;
+    setMailDisplaySender(currentUser?.mailDisplaySender || "");
     if (isEmailVerified) {
       setIsEmailVerified(isEmailVerified);
       setIsLoader(false);
@@ -67,6 +69,7 @@ function UserProfile() {
         });
         if (user) {
           isEmailVerified = user?.get("emailVerified");
+          setMailDisplaySender(user?.get("mailDisplaySender") || "");
           setIsEmailVerified(isEmailVerified);
           setIsLoader(false);
         }
@@ -87,6 +90,7 @@ function UserProfile() {
         const query = new Parse.Query(userQuery);
         await query.get(UserProfile.objectId).then((object) => {
           object.set("name", name);
+          object.set("mailDisplaySender", mailDisplaySender);
           object.set("ProfilePic", Image);
           object.set("phone", phn || "");
           object.save().then(
@@ -96,6 +100,7 @@ function UserProfile() {
                 let rr = JSON.stringify(res);
                 localStorage.setItem("UserInformation", rr);
                 SetName(res.name);
+                setMailDisplaySender(res.mailDisplaySender || "");
                 SetPhone(res?.phone || "");
                 setImage(res.ProfilePic);
                 localStorage.setItem("username", res.name);
@@ -250,6 +255,7 @@ function UserProfile() {
   const handleCancel = () => {
     setEditMode(false);
     SetName(localStorage.getItem("username"));
+    setMailDisplaySender(UserProfile?.mailDisplaySender || "");
     SetPhone(UserProfile && UserProfile.phone);
     setImage(localStorage.getItem("profileImg"));
     setCompany(extendUser && extendUser?.[0]?.Company);
@@ -346,6 +352,23 @@ function UserProfile() {
                   />
                 ) : (
                   <span>{localStorage.getItem("username")}</span>
+                )}
+              </li>
+              <li
+                className={`flex justify-between items-center border-b-[1px] border-gray-300 break-all ${
+                  editmode ? "py-1.5" : "py-2"
+                }`}
+              >
+                <span className="font-semibold">{t("mail-display-sender", { defaultValue: "Mail Display Sender" })}:</span>{" "}
+                {editmode ? (
+                  <input
+                    type="text"
+                    value={mailDisplaySender}
+                    className="op-input op-input-bordered op-input-sm w-[180px] focus:outline-none hover:border-base-content text-sm"
+                    onChange={(e) => setMailDisplaySender(e.target.value)}
+                  />
+                ) : (
+                  <span>{mailDisplaySender}</span>
                 )}
               </li>
               <li

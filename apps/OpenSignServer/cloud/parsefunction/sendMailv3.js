@@ -135,7 +135,36 @@ async function sendMailProvider(req, plan, monthchange) {
           // Keep existing behavior as fallback
           const requestFromName = req.params.from || '';
 
-          const fromName = requestFromName || process.env.SMTP_FROM_NAME || '';
+          let fromName = requestFromName || process.env.SMTP_FROM_NAME || '';
+
+          // Try to fetch user's configured display name if not explicitly provided in request
+          if (!requestFromName) {
+            try {
+              let user;
+              if (req.user) {
+                user = req.user;
+              } else if (req.params.extUserId) {
+                const userQuery = new Parse.Query('contracts_Users');
+                const extUser = await userQuery.get(req.params.extUserId, { useMasterKey: true });
+                if (extUser) {
+                  const userPtr = extUser.get('UserId');
+                  if (userPtr) {
+                    const _userQuery = new Parse.Query(Parse.User);
+                    user = await _userQuery.get(userPtr.id, { useMasterKey: true });
+                  }
+                }
+              }
+
+              if (user) {
+                const mailDisplaySender = user.get('mailDisplaySender');
+                if (mailDisplaySender) {
+                  fromName = mailDisplaySender;
+                }
+              }
+            } catch (err) {
+              console.log('Error fetching user mailDisplaySender:', err);
+            }
+          }
 
 
           // For SMTP, allow overriding From email separately (useful for SendGrid)
@@ -243,7 +272,36 @@ async function sendMailProvider(req, plan, monthchange) {
       const replyto = req.params?.replyto || '';
 
       const requestFromName = req.params.from || '';
-      const fromName = process.env.SMTP_FROM_NAME || requestFromName;
+      let fromName = requestFromName || process.env.SMTP_FROM_NAME || '';
+
+      // Try to fetch user's configured display name if not explicitly provided in request
+      if (!requestFromName) {
+        try {
+          let user;
+          if (req.user) {
+            user = req.user;
+          } else if (req.params.extUserId) {
+            const userQuery = new Parse.Query('contracts_Users');
+            const extUser = await userQuery.get(req.params.extUserId, { useMasterKey: true });
+            if (extUser) {
+              const userPtr = extUser.get('UserId');
+              if (userPtr) {
+                const _userQuery = new Parse.Query(Parse.User);
+                user = await _userQuery.get(userPtr.id, { useMasterKey: true });
+              }
+            }
+          }
+
+          if (user) {
+            const mailDisplaySender = user.get('mailDisplaySender');
+            if (mailDisplaySender) {
+              fromName = mailDisplaySender;
+            }
+          }
+        } catch (err) {
+          console.log('Error fetching user mailDisplaySender:', err);
+        }
+      }
 
       const smtpMailFrom = process.env.SMTP_MAIL_FROM || process.env.SMTP_USER_EMAIL;
 
