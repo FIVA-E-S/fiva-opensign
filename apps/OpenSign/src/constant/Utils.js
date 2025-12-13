@@ -2503,6 +2503,14 @@ export const getFileName = (fileUrl) => {
   }
 };
 
+export function getSenderName() {
+  return localStorage.getItem("senderName") || "";
+}
+
+export function setSenderName(name) {
+  localStorage.setItem("senderName", name || "");
+}
+
 //fetch tenant app logo from `partners_Tenant` class by domain name
 export const getAppLogo = async () => {
   const domain = window.location.host;

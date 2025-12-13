@@ -19,7 +19,9 @@ import {
   openInNewTab,
   createDocument,
   defaultMailBody,
-  defaultMailSubject
+  defaultMailSubject,
+  getSenderName,
+  setSenderName
 } from "../../constant/Utils";
 import EditorToolbar, {
   module1,
@@ -45,8 +47,7 @@ const TemplatesReport = (props) => {
   const journey = "Use Template";
   const titleElement = useElSize(titleRef);
   const prefillImg = useSelector((state) => state.widget.prefillImg);
-  const appName =
-    "OpenSign™";
+  const appName = "OpenSign™";
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -95,6 +96,14 @@ const TemplatesReport = (props) => {
   const [currUserId, setCurrUserId] = useState(false);
   const [documentDetails, setDocumentDetails] = useState();
   const [error, setError] = useState("");
+
+  // ✅ Sender name selected in UI (persisted in localStorage)
+  const [senderName, setSenderNameState] = useState(getSenderName());
+
+  const handleSenderNameChange = (value) => {
+    setSenderNameState(value);
+    setSenderName(value);
+  };
 
   useEffect(() => {
     if (props.isSearchResult) {
@@ -153,11 +162,14 @@ const TemplatesReport = (props) => {
 
     return pages;
   };
+
   const showAlert = (type, message, time = 1500) => {
     setAlertMsg({ type: type, message: message });
     setTimeout(() => setAlertMsg({ type: "", message: "" }), time);
   };
+
   const pageNumbers = getPaginationRange();
+
   //  below useEffect reset currenpage to 1 if user change route
   useEffect(() => {
     checkTourStatus();
@@ -183,20 +195,21 @@ const TemplatesReport = (props) => {
         const teamtRes = await Parse.Cloud.run("getteams", { active: true });
         if (teamtRes.length > 0) {
           const _teamRes = JSON.parse(JSON.stringify(teamtRes));
-            const selected = _teamRes.map(
-              (x) =>
-                x.Name === "All Users" && {
-                  label: x.Name,
-                  value: x.objectId
-                }
-            );
-            setSelectedTeam(selected);
+          const selected = _teamRes.map(
+            (x) =>
+              x.Name === "All Users" && {
+                label: x.Name,
+                value: x.objectId
+              }
+          );
+          setSelectedTeam(selected);
         }
       }
     } catch (err) {
       console.log("Err in fetch top level teamlist", err);
     }
   };
+
   // below useEffect is used to render next record if IsMoreDoc is true
   // second last value of pageNumber array is same as currentPage
   useEffect(() => {
@@ -235,7 +248,7 @@ const TemplatesReport = (props) => {
   // `handleURL` is used to open microapp
   const handleURL = async (item, act) => {
     if (act.hoverLabel === "Edit") {
-        navigate(`/${act.redirectUrl}/${item.objectId}`);
+      navigate(`/${act.redirectUrl}/${item.objectId}`);
     } else {
       // handle Use template
       const placeholder = item?.Placeholders || [];
@@ -302,6 +315,7 @@ const TemplatesReport = (props) => {
       setActLoader({});
     }
   };
+
   //function is called when there ther no any prefill role widget exist then create direct document and navigate
   const navigatePageToDoc = async (templateRes, placeholder, signer) => {
     setIsPrefillModal({});
@@ -344,8 +358,7 @@ const TemplatesReport = (props) => {
         setSelectedTeam(formatedList);
       }
       setIsShareWith({ [item.objectId]: true });
-    }
-    else if (act.action === "duplicate") {
+    } else if (act.action === "duplicate") {
       const hasDuplicate = utils.hasDuplicateWidgetNames(item?.Placeholders);
       if (hasDuplicate) {
         setError(t("duplicate-template-widget-error"));
@@ -363,6 +376,7 @@ const TemplatesReport = (props) => {
       setIsModal({ [`extendexpiry_${item.objectId}`]: true });
     }
   };
+
   // Get current list
   const indexOfLastDoc = currentPage * props.docPerPage;
   const indexOfFirstDoc = indexOfLastDoc - props.docPerPage;
@@ -412,10 +426,11 @@ const TemplatesReport = (props) => {
       setActLoader({});
     }
   };
-  const handleClose = (
-  ) => {
+
+  const handleClose = () => {
     setIsDeleteModal({});
   };
+
   const handleShare = (item) => {
     setActLoader({ [item.objectId]: true });
     const host = window.location.origin;
@@ -451,6 +466,7 @@ const TemplatesReport = (props) => {
     setCopied(true);
     setTimeout(() => setCopied(false), 1500); // Reset copied state after 1.5 seconds
   };
+
   const copybtn = (text, email) => {
     copytoData(text);
     if (copyUrlRef.current) {
@@ -525,13 +541,8 @@ const TemplatesReport = (props) => {
     });
     if (url) {
       try {
-        const signedUrl = await getSignedUrl(
-          url,
-          "", //docId
-          templateId
-        );
+        const signedUrl = await getSignedUrl(url, "", templateId);
         await fetchUrl(signedUrl, docName);
-
         setActLoader({});
       } catch (err) {
         console.log("err in getsignedurl", err);
@@ -557,10 +568,8 @@ const TemplatesReport = (props) => {
     const variables = {
       document_title: doc.Name,
       note: doc?.Note || "",
-      sender_name:
-        doc.ExtUserPtr.Name,
-      sender_mail:
-        doc.ExtUserPtr.Email,
+      sender_name: senderName || doc.ExtUserPtr.Name,
+      sender_mail: doc.ExtUserPtr.Email,
       sender_phone: doc.ExtUserPtr?.Phone || "",
       receiver_name: userDetails?.Name || "",
       receiver_email: userDetails?.Email,
@@ -572,6 +581,7 @@ const TemplatesReport = (props) => {
     const res = replaceMailVaribles(subject, "", variables);
     setMail((prev) => ({ ...prev, subject: res.subject }));
   };
+
   // `handlebodyChange` is used to add or change body of resend mail
   const handlebodyChange = (body, doc) => {
     const encodeBase64 = userDetails?.objectId
@@ -588,10 +598,8 @@ const TemplatesReport = (props) => {
     const variables = {
       document_title: doc.Name,
       note: doc?.Note || "",
-      sender_name:
-        doc.ExtUserPtr.Name,
-      sender_mail:
-        doc.ExtUserPtr.Email,
+      sender_name: senderName || doc.ExtUserPtr.Name,
+      sender_mail: doc.ExtUserPtr.Email,
       sender_phone: doc.ExtUserPtr?.Phone || "",
       receiver_name: userDetails?.Name || "",
       receiver_email: userDetails?.Email || "",
@@ -606,6 +614,7 @@ const TemplatesReport = (props) => {
       setMail((prev) => ({ ...prev, body: res.body }));
     }
   };
+
   // `handleNextBtn` is used to open edit mail template screen in resend mail modal
   // as well as replace variable with original one
   const handleNextBtn = (user, doc) => {
@@ -618,9 +627,7 @@ const TemplatesReport = (props) => {
     setUserDetails(userdata);
     const encodeBase64 = user.email
       ? btoa(`${doc.objectId}/${user.email}`)
-      : btoa(
-          `${doc.objectId}/${user.signerPtr.Email}/${user.signerPtr.objectId}`
-        );
+      : btoa(`${doc.objectId}/${user.signerPtr.Email}/${user.signerPtr.objectId}`);
     const expireDate = doc.ExpiryDate.iso;
     const newDate = new Date(expireDate);
     const localExpireDate = newDate.toLocaleDateString("en-US", {
@@ -632,10 +639,8 @@ const TemplatesReport = (props) => {
     const variables = {
       document_title: doc.Name,
       note: doc?.Note || "",
-      sender_name:
-        doc.ExtUserPtr.Name,
-      sender_mail:
-        doc.ExtUserPtr.Email,
+      sender_name: senderName || doc.ExtUserPtr.Name,
+      sender_mail: doc.ExtUserPtr.Email,
       sender_phone: doc.ExtUserPtr?.Phone || "",
       receiver_name: user?.signerPtr?.Name || "",
       receiver_email: user?.email ? user?.email : user?.signerPtr?.Email,
@@ -656,6 +661,7 @@ const TemplatesReport = (props) => {
     setMail((prev) => ({ ...prev, subject: res.subject, body: res.body }));
     setIsNextStep({ [user.Id]: true });
   };
+
   const handleResendMail = async (e, doc, user) => {
     e.preventDefault();
     setActLoader({ [user?.Id]: true });
@@ -665,24 +671,25 @@ const TemplatesReport = (props) => {
       "X-Parse-Application-Id": localStorage.getItem("parseAppId"),
       sessionToken: localStorage.getItem("accesstoken")
     };
+
     let params = {
-      replyto:
-        doc?.ExtUserPtr?.Email ||
-        "",
+      replyto: doc?.ExtUserPtr?.Email || "",
       extUserId: doc?.ExtUserPtr?.objectId,
       recipient: userDetails?.Email,
       subject: mail.subject,
-      from:
-        doc?.ExtUserPtr?.Email,
+
+      // ✅ From DISPLAY NAME selected in UI (server reads req.params.from)
+      from: senderName || doc?.ExtUserPtr?.Name || "",
+
       html: mail.body
     };
+
     try {
       const res = await axios.post(url, params, { headers: headers });
       if (res?.data?.result?.status === "success") {
         showAlert("success", t("mail-sent-alert"));
         setIsResendMail({});
-      }
-      else {
+      } else {
         showAlert("danger", t("something-went-wrong-mssg"));
       }
     } catch (err) {
@@ -694,6 +701,7 @@ const TemplatesReport = (props) => {
       setActLoader({});
     }
   };
+
   const fetchUserStatus = (user, doc) => {
     const email = user.email ? user.email : user.signerPtr.Email;
     const audit = doc?.AuditTrail?.find((x) => x.UserPtr.Email === email);
@@ -718,6 +726,7 @@ const TemplatesReport = (props) => {
       </div>
     );
   };
+
   // `handleQuickSendClose` is trigger when bulk send component trigger close event
   const handleQuickSendClose = (status, count) => {
     setIsBulkSend({});
@@ -731,9 +740,7 @@ const TemplatesReport = (props) => {
   // `handleBulkSend` is used to open modal as well as fetch template
   // and show Ui on the basis template response handleBulkSendTemplate
   const handleBulkSend = async (template) => {
-    const isPrefillExist = template?.Placeholders?.some(
-      (x) => x.Role === "prefill"
-    );
+    const isPrefillExist = template?.Placeholders?.some((x) => x.Role === "prefill");
     if (isPrefillExist) {
       showAlert("danger", t("prefill-bulk-error"));
     } else {
@@ -759,7 +766,6 @@ const TemplatesReport = (props) => {
       }
     }
   };
-
 
   // `handleShareWith` is used to save teams in sharedWith field
   const handleShareWith = async (e, template) => {
@@ -807,6 +813,7 @@ const TemplatesReport = (props) => {
       setActLoader({});
     }
   };
+
   // `handleRenameDoc` is used to update document name
   const handleRenameDoc = async (item) => {
     setActLoader({ [item.objectId]: true });
@@ -878,12 +885,14 @@ const TemplatesReport = (props) => {
       setForms(newForm);
     }
   };
+
   const handleClosePrefillModal = () => {
     setIsPrefillModal(false);
     setActLoader({});
     setForms([]);
     setXyPosition([]);
   };
+
   //`handlePrefillWidgetCreateDoc` is used to embed prefill all widgets on document, create document, and send document
   const handlePrefillWidgetCreateDoc = async () => {
     setIsSubmit(true);
@@ -896,7 +905,7 @@ const TemplatesReport = (props) => {
       templateDetails?.URL,
       [templateDetails],
       prefillImg,
-      extClass?.[0]?.UserId?.objectId,
+      extClass?.[0]?.UserId?.objectId
     );
     if (res?.status === "unfilled") {
       const emptyWidget = res?.emptyResponseObjects
@@ -925,16 +934,11 @@ const TemplatesReport = (props) => {
           if (tenantDetails && tenantDetails === "user does not exist!") {
             alert(t("user-not-exist"));
           } else if (tenantDetails) {
-            const extUser =
-              localStorage.getItem("Extand_Class") &&
-              JSON.parse(localStorage.getItem("Extand_Class"))?.[0];
             const subject = tenantDetails?.RequestSubject ?? "";
             const body = tenantDetails?.RequestBody ?? "";
             //customize mail state is handle to when user want to customize already set tenant email format then use that format
-            const userSubject =
-                  subject;
-            const userBody =
-                  body;
+            const userSubject = subject;
+            const userBody = body;
             setCustomizeMail({
               subject: userSubject ?? defaultMailSubject,
               body: userBody ?? defaultMailBody
@@ -950,6 +954,7 @@ const TemplatesReport = (props) => {
     }
     setIsSubmit(false);
   };
+
   //function show signer list and share link to share signUrl
   const handleShareList = () => {
     const shareLinkList = [];
@@ -996,12 +1001,12 @@ const TemplatesReport = (props) => {
       );
     });
   };
+
   const handleRemovePrefill = (placeholders) => {
-    const removePrefill = placeholders?.filter(
-      (data) => data?.Role !== "prefill"
-    );
+    const removePrefill = placeholders?.filter((data) => data?.Role !== "prefill");
     return removePrefill;
   };
+
   const handleRecipientSign = (docId, currUserId) => {
     if (currUserId) {
       navigate(`/recipientSignPdf/${docId}/${currUserId}`);
@@ -1013,6 +1018,7 @@ const TemplatesReport = (props) => {
   const handleItemClick = (title, info) => {
     setObjInfoModal({ title, info });
   };
+
   return (
     <div className="relative">
       {Object.keys(actLoader)?.length > 0 && (
@@ -1070,9 +1076,7 @@ const TemplatesReport = (props) => {
               <button
                 className="flex justify-center items-center focus:outline-none rounded-md text-[18px]"
                 aria-label="Search"
-                onClick={() =>
-                  props.setMobileSearchOpen(!props.mobileSearchOpen)
-                }
+                onClick={() => props.setMobileSearchOpen(!props.mobileSearchOpen)}
               >
                 <i className="fa-light fa-magnifying-glass"></i>
               </button>
@@ -1088,6 +1092,7 @@ const TemplatesReport = (props) => {
             )}
           </div>
         </div>
+
         {/* Search input for report smalle in width */}
         {titleElement?.width < 500 && props.mobileSearchOpen && (
           <div className="top-full left-0 w-full px-3 pt-1 pb-3">
@@ -1101,6 +1106,7 @@ const TemplatesReport = (props) => {
             />
           </div>
         )}
+
         <div
           className={`overflow-auto w-full border-b ${
             props.List?.length > 0
@@ -1128,6 +1134,7 @@ const TemplatesReport = (props) => {
                 )}
               </tr>
             </thead>
+
             <tbody className="text-[12px]">
               {props.List?.length > 0 &&
                 currentList.map((item, index) => (
@@ -1152,13 +1159,13 @@ const TemplatesReport = (props) => {
                         handleItemClick={handleItemClick}
                       />
                     ))}
+
                     <td className="px-2 py-2">
                       <div className="text-base-content min-w-max flex flex-row gap-x-2 gap-y-1 justify-start items-center">
                         {props.actions?.length > 0 &&
                           props.actions.map((act, index) => (
                             <React.Fragment key={index}>
-                              {(item.ExtUserPtr?.objectId ===
-                                extClass?.[0]?.objectId ||
+                              {(item.ExtUserPtr?.objectId === extClass?.[0]?.objectId ||
                                 act.btnLabel === "Use") && (
                                 <div
                                   role="button"
@@ -1169,20 +1176,17 @@ const TemplatesReport = (props) => {
                                   title={t(`btnLabel.${act.hoverLabel}`)}
                                   className={
                                     act.action !== "option"
-                                      ? `${
-                                          act?.btnColor || ""
-                                        } op-btn op-btn-sm mr-1`
+                                      ? `${act?.btnColor || ""} op-btn op-btn-sm mr-1`
                                       : "text-base-content focus:outline-none text-lg mr-2 relative"
                                   }
                                 >
                                   <i className={act.btnIcon}></i>
                                   {act.btnLabel && (
                                     <span className="uppercase font-medium">
-                                      {
-                                            `${t(`btnLabel.${act.btnLabel}`)}`
-                                      }
+                                      {`${t(`btnLabel.${act.btnLabel}`)}`}
                                     </span>
                                   )}
+
                                   {/* template report */}
                                   {isOption[item.objectId] &&
                                     act.action === "option" && (
@@ -1190,27 +1194,17 @@ const TemplatesReport = (props) => {
                                         {act.subaction?.map((subact) => (
                                           <li
                                             key={subact.btnId}
-                                            onClick={() =>
-                                              handleActionBtn(subact, item)
-                                            }
-                                            title={t(
-                                              `btnLabel.${subact.btnLabel}`
-                                            )}
+                                            onClick={() => handleActionBtn(subact, item)}
+                                            title={t(`btnLabel.${subact.btnLabel}`)}
                                           >
                                             <span className="flex items-center justify-between">
                                               <span className="text-[13px] capitalize font-medium">
-                                                <i
-                                                  className={`${subact.btnIcon} mr-2`}
-                                                ></i>
+                                                <i className={`${subact.btnIcon} mr-2`}></i>
                                                 {subact.btnLabel &&
-                                                  t(
-                                                    `btnLabel.${subact.btnLabel}`
-                                                  )}
+                                                  t(`btnLabel.${subact.btnLabel}`)}
                                               </span>
                                               {subact.secIcon && (
-                                                <i
-                                                  className={`${subact.secIcon} ml-1.5`}
-                                                ></i>
+                                                <i className={`${subact.secIcon} ml-1.5`}></i>
                                               )}
                                             </span>
                                           </li>
@@ -1219,6 +1213,7 @@ const TemplatesReport = (props) => {
                                     )}
                                 </div>
                               )}
+
                               <ModalUi
                                 title={t("btnLabel.Duplicate")}
                                 isOpen={isModal["duplicate_" + item.objectId]}
@@ -1235,9 +1230,7 @@ const TemplatesReport = (props) => {
                                       <div className="flex flex-row gap-2 pt-3 mt-3 border-t-[1.5px] border-gray-500">
                                         <button
                                           className="w-[100px] op-btn op-btn-primary op-btn-md"
-                                          onClick={() =>
-                                            handleCreateDuplicate(item)
-                                          }
+                                          onClick={() => handleCreateDuplicate(item)}
                                         >
                                           {t("yes")}
                                         </button>
@@ -1255,12 +1248,11 @@ const TemplatesReport = (props) => {
                             </React.Fragment>
                           ))}
                       </div>
+
                       {isPrefillModal[item.objectId] && (
                         <PrefillWidgetModal
                           isPrefillModal={isPrefillModal[item.objectId]}
-                          prefillData={xyPosition.find(
-                            (x) => x.Role === "prefill"
-                          )}
+                          prefillData={xyPosition.find((x) => x.Role === "prefill")}
                           forms={forms}
                           setForms={setForms}
                           xyPosition={xyPosition}
@@ -1275,32 +1267,34 @@ const TemplatesReport = (props) => {
                           isSubmit={isSubmit}
                         />
                       )}
+
                       {isShareWith[item.objectId] && (
                         <div className="op-modal op-modal-open">
                           <div className="max-h-90 bg-base-100 w-[95%] md:max-w-[500px] rounded-box relative">
-                                  <h3 className="text-base-content font-bold text-lg pt-[15px] px-[20px]">
-                                    {t("share-with")}
-                                  </h3>
-                                  <div
-                                    className="op-btn op-btn-sm op-btn-circle op-btn-ghost text-base-content absolute right-2 top-2 z-40"
-                                    onClick={() => setIsShareWith({})}
-                                  >
-                                    ✕
-                                  </div>
-                                  <div className="px-2 mt-3 w-full h-full">
-                                    <div className="op-input op-input-bordered op-input-sm w-full h-full text-[13px] break-all">
-                                      {selectedTeam?.[0]?.label}
-                                    </div>
-                                  </div>
-                                  <button
-                                    onClick={(e) => handleShareWith(e, item)}
-                                    className="op-btn op-btn-primary ml-[10px] my-3"
-                                  >
-                                    {t("submit")}
-                                  </button>
+                            <h3 className="text-base-content font-bold text-lg pt-[15px] px-[20px]">
+                              {t("share-with")}
+                            </h3>
+                            <div
+                              className="op-btn op-btn-sm op-btn-circle op-btn-ghost text-base-content absolute right-2 top-2 z-40"
+                              onClick={() => setIsShareWith({})}
+                            >
+                              ✕
+                            </div>
+                            <div className="px-2 mt-3 w-full h-full">
+                              <div className="op-input op-input-bordered op-input-sm w-full h-full text-[13px] break-all">
+                                {selectedTeam?.[0]?.label}
+                              </div>
+                            </div>
+                            <button
+                              onClick={(e) => handleShareWith(e, item)}
+                              className="op-btn op-btn-primary ml-[10px] my-3"
+                            >
+                              {t("submit")}
+                            </button>
                           </div>
                         </div>
                       )}
+
                       {isDeleteModal[item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1329,12 +1323,11 @@ const TemplatesReport = (props) => {
                           </div>
                         </ModalUi>
                       )}
+
                       {isBulkSend[item.objectId] && (
                         <ModalUi
                           isOpen
-                          title={
-                                t("quick-send")
-                          }
+                          title={t("quick-send")}
                           handleClose={() => setIsBulkSend({})}
                         >
                           {isLoader[item.objectId] ? (
@@ -1351,6 +1344,7 @@ const TemplatesReport = (props) => {
                           )}
                         </ModalUi>
                       )}
+
                       {isShare[item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1382,14 +1376,10 @@ const TemplatesReport = (props) => {
                                   </ShareButton>
                                   <button
                                     className="op-btn op-btn-primary op-btn-outline op-btn-xs md:op-btn-sm"
-                                    onClick={() =>
-                                      copybtn(share.url, share.email)
-                                    }
+                                    onClick={() => copybtn(share.url, share.email)}
                                   >
                                     <i className="fa-light fa-copy" />
-                                    {copied[share.email]
-                                      ? t("copied")
-                                      : t("copy")}
+                                    {copied[share.email] ? t("copied") : t("copy")}
                                   </button>
                                 </div>
                               </div>
@@ -1398,18 +1388,16 @@ const TemplatesReport = (props) => {
                           </div>
                         </ModalUi>
                       )}
+
                       {isResendMail[item.objectId] && (
                         <ModalUi
                           isOpen
-                          title={
-                                t("resend-mail")
-                          }
+                          title={t("resend-mail")}
                           handleClose={handleResendClose}
                         >
-                            <div className="overflow-y-auto max-h-[340px] md:max-h-[400px]">
-                              {item?.Placeholders?.filter(
-                                (user) => user?.Role !== "prefill"
-                              )?.map((user) => (
+                          <div className="overflow-y-auto max-h-[340px] md:max-h-[400px]">
+                            {item?.Placeholders?.filter((user) => user?.Role !== "prefill")?.map(
+                              (user) => (
                                 <React.Fragment key={user.Id}>
                                   {isNextStep[user.Id] && (
                                     <div className="relative ">
@@ -1419,9 +1407,7 @@ const TemplatesReport = (props) => {
                                         </div>
                                       )}
                                       <form
-                                        onSubmit={(e) =>
-                                          handleResendMail(e, item, user)
-                                        }
+                                        onSubmit={(e) => handleResendMail(e, item, user)}
                                         className="w-full flex flex-col gap-2 p-3 text-base-content relative"
                                       >
                                         <div className="absolute right-5 text-xs z-40">
@@ -1430,6 +1416,21 @@ const TemplatesReport = (props) => {
                                             message={t("resend-mail-help")}
                                           />
                                         </div>
+
+                                        {/* ✅ Sender name selector */}
+                                        <div>
+                                          <label className="text-xs ml-1" htmlFor="sendername">
+                                            Sender name
+                                          </label>
+                                          <input
+                                            id="sendername"
+                                            className="op-input op-input-bordered op-input-sm focus:outline-none hover:border-base-content w-full text-xs"
+                                            value={senderName}
+                                            onChange={(e) => handleSenderNameChange(e.target.value)}
+                                            placeholder="Tramitaciones Energéticas"
+                                          />
+                                        </div>
+
                                         <div>
                                           <label
                                             className="text-xs ml-1"
@@ -1442,22 +1443,16 @@ const TemplatesReport = (props) => {
                                             className="op-input op-input-bordered op-input-sm focus:outline-none hover:border-base-content w-full text-xs"
                                             value={mail.subject}
                                             onChange={(e) =>
-                                              handleSubjectChange(
-                                                e.target.value,
-                                                item
-                                              )
+                                              handleSubjectChange(e.target.value, item)
                                             }
                                             onInvalid={(e) =>
-                                              e.target.setCustomValidity(
-                                                t("input-required")
-                                              )
+                                              e.target.setCustomValidity(t("input-required"))
                                             }
-                                            onInput={(e) =>
-                                              e.target.setCustomValidity("")
-                                            }
+                                            onInput={(e) => e.target.setCustomValidity("")}
                                             required
                                           />
                                         </div>
+
                                         <div>
                                           <label
                                             className="text-xs ml-1"
@@ -1473,11 +1468,10 @@ const TemplatesReport = (props) => {
                                             placeholder="add body of email "
                                             modules={module1}
                                             formats={formats}
-                                            onChange={(value) =>
-                                              handlebodyChange(value, item)
-                                            }
+                                            onChange={(value) => handlebodyChange(value, item)}
                                           />
                                         </div>
+
                                         <button
                                           type="submit"
                                           className="op-btn op-btn-primary"
@@ -1487,24 +1481,25 @@ const TemplatesReport = (props) => {
                                       </form>
                                     </div>
                                   )}
+
                                   {Object?.keys(isNextStep) <= 0 && (
                                     <div className="flex justify-between items-center gap-2 my-2 px-3">
                                       <div className="text-base-content">
                                         {user?.signerPtr?.Name || "-"}{" "}
                                         {`<${
-                                          user?.email
-                                            ? user.email
-                                            : user.signerPtr.Email
+                                          user?.email ? user.email : user.signerPtr.Email
                                         }>`}
                                       </div>
                                       <>{fetchUserStatus(user, item)}</>
                                     </div>
                                   )}
                                 </React.Fragment>
-                              ))}
-                            </div>
+                              )
+                            )}
+                          </div>
                         </ModalUi>
                       )}
+
                       <ModalUi
                         title={t("btnLabel.Rename")}
                         isOpen={isModal["rename_" + item.objectId]}
@@ -1542,6 +1537,7 @@ const TemplatesReport = (props) => {
                 ))}
             </tbody>
           </table>
+
           {props.List?.length <= 0 && (
             <div
               className={`${
@@ -1561,12 +1557,10 @@ const TemplatesReport = (props) => {
             </div>
           )}
         </div>
+
         <div className="op-join flex flex-wrap items-center p-2">
           {props.List.length > props.docPerPage && (
-            <button
-              onClick={() => paginateBack()}
-              className="op-join-item op-btn op-btn-sm"
-            >
+            <button onClick={() => paginateBack()} className="op-join-item op-btn op-btn-sm">
               {t("prev")}
             </button>
           )}
@@ -1575,25 +1569,24 @@ const TemplatesReport = (props) => {
               key={i}
               onClick={() => setCurrentPage(x)}
               disabled={x === "..."}
-              className={`${
-                x === currentPage ? "op-btn-active" : ""
-              } op-join-item op-btn op-btn-sm`}
+              className={`${x === currentPage ? "op-btn-active" : ""} op-join-item op-btn op-btn-sm`}
             >
               {x}
             </button>
           ))}
           {props.List.length > props.docPerPage && (
-            <button
-              onClick={() => paginateFront()}
-              className="op-join-item op-btn op-btn-sm"
-            >
+            <button onClick={() => paginateFront()} className="op-join-item op-btn op-btn-sm">
               {t("next")}
             </button>
           )}
         </div>
+
         <CustomizeMail
           setIsMailModal={setIsMailModal}
           setCustomizeMail={setCustomizeMail}
+          senderName={senderName}
+          setSenderName={setSenderNameState}
+          setSenderNameGlobal={setSenderName}
           documentId={documentId}
           signerList={signerList}
           setIsSend={setIsSend}
@@ -1604,7 +1597,10 @@ const TemplatesReport = (props) => {
           setCurrUserId={setCurrUserId}
           handleShareList={handleShareList}
           setDocumentDetails={setDocumentDetails}
+          // ✅ optional: lets CustomizeMail also send "from" if you update it
+          senderName={senderName}
         />
+        
         <ModalUi
           isOpen={isSend}
           title={

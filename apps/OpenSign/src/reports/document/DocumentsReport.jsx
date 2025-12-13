@@ -21,7 +21,9 @@ import {
   createDocument,
   getSignerEmail,
   defaultMailBody,
-  defaultMailSubject
+  defaultMailSubject,
+  getSenderName,
+  setSenderName
 } from "../../constant/Utils";
 import EditorToolbar, {
   module1,
@@ -47,8 +49,7 @@ const DocumentsReport = (props) => {
   const titleRef = useRef(null);
   const titleElement = useElSize(titleRef);
   const journey = "Use Template";
-  const appName =
-    "OpenSign™";
+  const appName = "OpenSign™";
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,6 +99,14 @@ const DocumentsReport = (props) => {
   const [currUserId, setCurrUserId] = useState(false);
   const [documentDetails, setDocumentDetails] = useState();
   const [objInfoModal, setObjInfoModal] = useState({ title: "", info: "" });
+
+  // ✅ Sender name (UI-controlled, persisted)
+  const [senderName, setSenderNameState] = useState(getSenderName() || "");
+  const handleSenderNameChange = (value) => {
+    setSenderNameState(value);
+    setSenderName(value); // persist (usually localStorage)
+  };
+
   const startIndex = (currentPage - 1) * props.docPerPage;
   const { isMoreDocs, setIsNextRecord } = props;
 
@@ -117,7 +126,7 @@ const DocumentsReport = (props) => {
   }, []);
 
   const getPaginationRange = () => {
-    const totalPageNumbers = 7; // Adjust this value to show more/less page numbers
+    const totalPageNumbers = 7;
     const pages = [];
     const totalPages = Math.ceil(props.List.length / props.docPerPage);
     if (totalPages <= totalPageNumbers) {
@@ -167,19 +176,19 @@ const DocumentsReport = (props) => {
 
     return pages;
   };
+
   const showAlert = (type, message, time = 1500) => {
     setAlertMsg({ type: type, message: message });
     setTimeout(() => setAlertMsg({ type: "", message: "" }), time);
   };
+
   const pageNumbers = getPaginationRange();
-  //  below useEffect reset currenpage to 1 if user change route
+
   useEffect(() => {
     return () => setCurrentPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // below useEffect is used to render next record if IsMoreDoc is true
-  // second last value of pageNumber array is same as currentPage
   useEffect(() => {
     if (isMoreDocs && pageNumbers[pageNumbers.length - 1] === currentPage) {
       setIsNextRecord(true);
@@ -203,16 +212,10 @@ const DocumentsReport = (props) => {
           const filterSignTypes = signatureType?.filter(
             (x) => x.enabled === true
           );
-          const extUser =
-            localStorage.getItem("Extand_Class") &&
-            JSON.parse(localStorage.getItem("Extand_Class"))?.[0];
           const subject = tenantDetails?.RequestSubject ?? "";
           const body = tenantDetails?.RequestBody ?? "";
-          //customize mail state is handle to when user want to customize already set tenant email format then use that format
-          const userSubject =
-                subject;
-          const userBody =
-                body;
+          const userSubject = subject;
+          const userBody = body;
           setCustomizeMail({
             subject: userSubject ?? defaultMailSubject,
             body: userBody ?? defaultMailBody
@@ -260,7 +263,7 @@ const DocumentsReport = (props) => {
       console.log("Error to fetch template in report", e);
     }
   };
-  //function is called when there ther no any prefill role widget exist then create direct document and navigate
+
   const navigatePageToDoc = async (templateRes, placeholder, signer) => {
     setIsPrefillModal({});
     const res = await createDocument(
@@ -277,6 +280,7 @@ const DocumentsReport = (props) => {
       alert(t("something-went-wrong-mssg"));
     }
   };
+
   const handleUseTemplate = async (templateId, item) => {
     try {
       const templateDeatils = await fetchTemplate(templateId);
@@ -287,7 +291,6 @@ const DocumentsReport = (props) => {
         const signer = utils.handleSignersList(templateData);
         setSignerList(signer);
 
-        //this function is used to open modal to show signers list
         await utils?.handleDisplaySignerList(
           templateData?.Placeholders,
           templateData?.Signers,
@@ -305,6 +308,7 @@ const DocumentsReport = (props) => {
       setActLoader({});
     }
   };
+
   const handleActionBtn = async (act, item) => {
     if (act.action === "redirect") {
       handleURL(item, act);
@@ -317,6 +321,8 @@ const DocumentsReport = (props) => {
     } else if (act.action === "option") {
       setIsOption({ [item.objectId]: !isOption[item.objectId] });
     } else if (act.action === "resend") {
+      // ✅ preload senderName for the modal
+      setSenderNameState(getSenderName() || item?.ExtUserPtr?.Name || "");
       setIsResendMail({ [item.objectId]: true });
     } else if (act.action === "rename") {
       setIsModal({ [`rename_${item.objectId}`]: true });
@@ -333,14 +339,11 @@ const DocumentsReport = (props) => {
     }
   };
 
-
-  // Get current list
   const indexOfLastDoc = currentPage * props.docPerPage;
   const indexOfFirstDoc = indexOfLastDoc - props.docPerPage;
   const sortedList = props.List;
   const currentList = sortedList?.slice(indexOfFirstDoc, indexOfLastDoc);
 
-  // Change page
   const paginateFront = () => {
     const lastValue = pageNumbers?.[pageNumbers?.length - 1];
     if (currentPage < lastValue) {
@@ -383,17 +386,18 @@ const DocumentsReport = (props) => {
       setActLoader({});
     }
   };
+
   const handleClose = () => {
     setIsRevoke({});
     setIsDeleteModal({});
     setReason("");
   };
+
   const handleShare = (item) => {
     setActLoader({ [item.objectId]: true });
     const host = window.location.origin;
     const sendMail = item?.SendMail || false;
     const getUrl = (x) => {
-      //encode this url value `${item.objectId}/${x.Email}/${x.objectId}` to base64 using `btoa` function
       if (x?.signerObjId) {
         const encodeBase64 = btoa(
           `${item.objectId}/${getSignerEmail(x, item?.Signers)}/${x?.signerObjId}/${sendMail}`
@@ -418,19 +422,20 @@ const DocumentsReport = (props) => {
   const copytoclipboard = (text) => {
     copytoData(text);
     if (copyUrlRef.current) {
-      copyUrlRef.current.textContent = text; // Update text safely
+      copyUrlRef.current.textContent = text;
     }
     setCopied(true);
-    setTimeout(() => setCopied(false), 1500); // Reset copied state after 1.5 seconds
+    setTimeout(() => setCopied(false), 1500);
   };
+
   const copybtn = (text, email) => {
     copytoData(text);
     if (copyUrlRef.current) {
-      copyUrlRef.current.textContent = text; // Update text safely
+      copyUrlRef.current.textContent = text;
     }
     setCopied({ [email]: true });
   };
-  //function to handle revoke/decline docment
+
   const handleRevoke = async (item) => {
     const senderUser = localStorage.getItem(
       `Parse/${localStorage.getItem("parseAppId")}/currentUser`
@@ -449,9 +454,7 @@ const DocumentsReport = (props) => {
     };
     await axios
       .put(
-        `${localStorage.getItem("baseUrl")}classes/contracts_Document/${
-          item.objectId
-        }`,
+        `${localStorage.getItem("baseUrl")}classes/contracts_Document/${item.objectId}`,
         data,
         {
           headers: {
@@ -481,7 +484,6 @@ const DocumentsReport = (props) => {
       });
   };
 
-  // `handleDownload` is used to get valid doc url available in completed report
   const handleDownload = async (item) => {
     setActLoader({ [`${item.objectId}`]: true });
     const url = item?.SignedUrl || item?.URL || "";
@@ -500,16 +502,10 @@ const DocumentsReport = (props) => {
     const docId = props?.ReportName !== "Templates" && item.objectId;
     if (url) {
       try {
-        if (
-          isCompleted
-        ) {
+        if (isCompleted) {
           setIsDownloadModal({ [item.objectId]: true });
         } else {
-          const signedUrl = await getSignedUrl(
-            url,
-            docId,
-            templateId
-          );
+          const signedUrl = await getSignedUrl(url, docId, templateId);
           await fetchUrl(signedUrl, docName);
         }
         setActLoader({});
@@ -521,7 +517,6 @@ const DocumentsReport = (props) => {
     }
   };
 
-  // `handleSubjectChange` is used to add or change subject of resend mail
   const handleSubjectChange = (subject, doc) => {
     const encodeBase64 = userDetails?.objectId
       ? btoa(`${doc.objectId}/${userDetails.Email}/${userDetails.objectId}`)
@@ -537,10 +532,8 @@ const DocumentsReport = (props) => {
     const variables = {
       document_title: doc.Name,
       note: doc?.Note || "",
-      sender_name:
-        doc.ExtUserPtr.Name,
-      sender_mail:
-        doc.ExtUserPtr.Email,
+      sender_name: senderName || doc.ExtUserPtr.Name,
+      sender_mail: doc.ExtUserPtr.Email,
       sender_phone: doc.ExtUserPtr?.Phone || "",
       receiver_name: userDetails?.Name || "",
       receiver_email: userDetails?.Email,
@@ -553,7 +546,6 @@ const DocumentsReport = (props) => {
     setMail((prev) => ({ ...prev, subject: res.subject }));
   };
 
-  // `handlebodyChange` is used to add or change body of resend mail
   const handlebodyChange = (body, doc) => {
     const encodeBase64 = userDetails?.objectId
       ? btoa(`${doc.objectId}/${userDetails.Email}/${userDetails.objectId}`)
@@ -569,10 +561,8 @@ const DocumentsReport = (props) => {
     const variables = {
       document_title: doc.Name,
       note: doc?.Note || "",
-      sender_name:
-        doc.ExtUserPtr.Name,
-      sender_mail:
-        doc.ExtUserPtr.Email,
+      sender_name: senderName || doc.ExtUserPtr.Name,
+      sender_mail: doc.ExtUserPtr.Email,
       sender_phone: doc.ExtUserPtr?.Phone || "",
       receiver_name: userDetails?.Name || "",
       receiver_email: userDetails?.Email || "",
@@ -587,8 +577,7 @@ const DocumentsReport = (props) => {
       setMail((prev) => ({ ...prev, body: res.body }));
     }
   };
-  // `handleNextBtn` is used to open edit mail template screen in resend mail modal
-  // as well as replace variable with original one
+
   const handleNextBtn = (user, doc) => {
     const userdata = {
       Name: user?.signerPtr?.Name,
@@ -599,9 +588,7 @@ const DocumentsReport = (props) => {
     setUserDetails(userdata);
     const encodeBase64 = user.email
       ? btoa(`${doc.objectId}/${user.email}`)
-      : btoa(
-          `${doc.objectId}/${user.signerPtr.Email}/${user.signerPtr.objectId}`
-        );
+      : btoa(`${doc.objectId}/${user.signerPtr.Email}/${user.signerPtr.objectId}`);
     const expireDate = doc.ExpiryDate.iso;
     const newDate = new Date(expireDate);
     const localExpireDate = newDate.toLocaleDateString("en-US", {
@@ -613,10 +600,8 @@ const DocumentsReport = (props) => {
     const variables = {
       document_title: doc.Name,
       note: doc?.Note || "",
-      sender_name:
-        doc.ExtUserPtr.Name,
-      sender_mail:
-        doc.ExtUserPtr.Email,
+      sender_name: senderName || doc.ExtUserPtr.Name,
+      sender_mail: doc.ExtUserPtr.Email,
       sender_phone: doc.ExtUserPtr?.Phone || "",
       receiver_name: user?.signerPtr?.Name || "",
       receiver_email: user?.email ? user?.email : user?.signerPtr?.Email,
@@ -637,6 +622,7 @@ const DocumentsReport = (props) => {
     setMail((prev) => ({ ...prev, subject: res.subject, body: res.body }));
     setIsNextStep({ [user.Id]: true });
   };
+
   const handleResendMail = async (e, doc, user) => {
     e.preventDefault();
     setActLoader({ [user?.Id]: true });
@@ -647,14 +633,12 @@ const DocumentsReport = (props) => {
       sessionToken: localStorage.getItem("accesstoken")
     };
     let params = {
-      replyto:
-        doc?.ExtUserPtr?.Email ||
-        "",
+      replyto: doc?.ExtUserPtr?.Email || "",
       extUserId: doc?.ExtUserPtr?.objectId,
       recipient: userDetails?.Email,
       subject: mail.subject,
-      from:
-        doc?.ExtUserPtr?.Email,
+      // ✅ this becomes the display name in server: `${from} <${mailsender}>`
+      from: senderName || doc?.ExtUserPtr?.Name || "",
       html: mail.body
     };
     try {
@@ -662,8 +646,7 @@ const DocumentsReport = (props) => {
       if (res?.data?.result?.status === "success") {
         showAlert("success", t("mail-sent-alert"));
         setIsResendMail({});
-      }
-      else {
+      } else {
         showAlert("danger", t("something-went-wrong-mssg"));
       }
     } catch (err) {
@@ -675,6 +658,7 @@ const DocumentsReport = (props) => {
       setActLoader({});
     }
   };
+
   const fetchUserStatus = (user, doc) => {
     const email = user.email ? user.email : user.signerPtr.Email;
     const audit = doc?.AuditTrail?.find((x) => x.UserPtr.Email === email);
@@ -699,7 +683,7 @@ const DocumentsReport = (props) => {
       </div>
     );
   };
-  // `handleQuickSendClose` is trigger when bulk send component trigger close event
+
   const handleQuickSendClose = (status, count) => {
     setIsBulkSend({});
     if (status === "success") {
@@ -762,7 +746,6 @@ const DocumentsReport = (props) => {
     }
   };
 
-  // `handleRenameDoc` is used to update document name
   const handleRenameDoc = async (item) => {
     setActLoader({ [item.objectId]: true });
     setIsModal({});
@@ -772,7 +755,6 @@ const DocumentsReport = (props) => {
       const docObj = await query.get(item.objectId);
       docObj.set("Name", renameDoc);
       await docObj.save();
-      //update report list data
       const updateList = props.List.map((x) =>
         x.objectId === item.objectId ? { ...x, Name: renameDoc } : x
       );
@@ -784,6 +766,7 @@ const DocumentsReport = (props) => {
       setActLoader({});
     }
   };
+
   const handleBtnVisibility = (act, item) => {
     if (!act.restrictBtn) {
       return true;
@@ -799,6 +782,7 @@ const DocumentsReport = (props) => {
     setError("");
     setIsModal({});
   };
+
   const handleSaveAsTemplate = async (doc) => {
     try {
       const params = { docId: doc?.objectId };
@@ -811,6 +795,7 @@ const DocumentsReport = (props) => {
       setActLoader({});
     }
   };
+
   const handleCloseTemplate = () => {
     setTemplateId("");
     setIsSuccess({});
@@ -819,8 +804,6 @@ const DocumentsReport = (props) => {
     handleClose();
   };
 
-  // `handleBulkSendTemplate` is used to open modal as well as fetch template
-  // and show Ui on the basis template response
   const handleBulkSendTemplate = async (templateId, docId) => {
     setIsBulkSend({ [docId]: true });
     setIsLoader({ [docId]: true });
@@ -871,7 +854,6 @@ const DocumentsReport = (props) => {
     } catch (err) {
       handleCloseModal();
       showAlert("danger", err.message);
-      // showAlert("danger", t("something-went-wrong-mssg"));
       console.log("Err while create duplicate template", err);
     } finally {
       setActLoader({});
@@ -883,7 +865,7 @@ const DocumentsReport = (props) => {
       ? true
       : false;
   };
-  // `handleAddUser` is used to adduserAdd commentMore actions
+
   const handleAddUser = (data, id) => {
     const signerPtr = {
       __type: "Pointer",
@@ -898,19 +880,15 @@ const DocumentsReport = (props) => {
     });
     setXyPosition(updatePlaceHolder);
     const updateSigner = signerList.map((y) => {
-      //condition is used to updated signer's email
       if (y.objectId === id) {
         return data;
-      }
-      //condition is used to add new signer's mail to role
-      else if (y.Id === id) {
+      } else if (y.Id === id) {
         return { ...y, ...data, className: "contracts_Contactbook" };
       }
       return { ...y };
     });
     setSignerList(updateSigner);
 
-    //condition when there are any new signer add then save that signer in dropdown option
     if (isNewContact.status) {
       let newForm = [...forms];
       const label = `${data.Name}<${data.Email}>`;
@@ -920,13 +898,14 @@ const DocumentsReport = (props) => {
       setForms(newForm);
     }
   };
+
   const handleClosePrefillModal = () => {
     setIsPrefillModal(false);
     setActLoader({});
     setForms([]);
     setXyPosition([]);
   };
-  //`handlePrefillWidgetCreateDoc` is used to embed prefill all widgets on document, create document, and send document
+
   const handlePrefillWidgetCreateDoc = async () => {
     setIsSubmit(true);
     const scale = 1;
@@ -940,7 +919,7 @@ const DocumentsReport = (props) => {
       templateDeatils?.URL,
       [templateDeatils],
       prefillImg,
-      extClass?.[0]?.UserId?.objectId,
+      extClass?.[0]?.UserId?.objectId
     );
     if (res?.status === "unfilled") {
       const emptyWidget = res?.emptyResponseObjects
@@ -969,6 +948,7 @@ const DocumentsReport = (props) => {
     setIsSubmit(false);
     setActLoader({});
   };
+
   const handleRecipientSign = (documentId, currentId) => {
     if (currentId) {
       navigate(`/recipientSignPdf/${documentId}/${currentId}`);
@@ -976,7 +956,7 @@ const DocumentsReport = (props) => {
       navigate(`/recipientSignPdf/${documentId}`);
     }
   };
-  //function show signer list and share link to share signUrl
+
   const handleShareList = () => {
     const shareLinkList = [];
     let signerMail = signerList;
@@ -984,7 +964,6 @@ const DocumentsReport = (props) => {
       const objectId = signerMail[i].objectId;
       const hostUrl = window.location.origin;
       const sendMail = false;
-      //encode this url value `${documentId}/${signerMail[i].Email}/${objectId}` to base64 using `btoa` function
       const encodeBase64 = btoa(
         `${documentId}/${signerMail[i].Email}/${objectId}/${sendMail}`
       );
@@ -1022,16 +1001,16 @@ const DocumentsReport = (props) => {
       );
     });
   };
+
   const handleRemovePrefill = (placeholders) => {
-    const removePrefill = placeholders?.filter(
-      (data) => data?.Role !== "prefill"
-    );
+    const removePrefill = placeholders?.filter((data) => data?.Role !== "prefill");
     return removePrefill;
   };
+
   const handleCloseMail = () => {
     handleRecipientSign(documentId);
   };
-  //function is used to show warning message when use save as template
+
   const handleWarning = (item) => {
     const isPrefill = item?.Placeholders?.some((x) => x?.Role === "prefill");
     if (isPrefill) {
@@ -1046,6 +1025,7 @@ const DocumentsReport = (props) => {
   const handleItemClick = (title, info) => {
     setObjInfoModal({ title, info });
   };
+
   return (
     <div className="relative">
       {Object.keys(actLoader)?.length > 0 && (
@@ -1073,7 +1053,6 @@ const DocumentsReport = (props) => {
             )}
           </div>
           <div className="flex flex-row justify-center items-center gap-3 mb-2">
-            {/* Search input for report bigger in width */}
             {titleElement?.width > 500 && (
               <div className="flex">
                 <input
@@ -1086,14 +1065,11 @@ const DocumentsReport = (props) => {
                 />
               </div>
             )}
-            {/* search icon/magnifer icon  */}
             {titleElement?.width < 500 && (
               <button
                 className="flex justify-center items-center focus:outline-none rounded-md text-[18px]"
                 aria-label="Search"
-                onClick={() =>
-                  props.setMobileSearchOpen(!props.mobileSearchOpen)
-                }
+                onClick={() => props.setMobileSearchOpen(!props.mobileSearchOpen)}
               >
                 <i className="fa-light fa-magnifying-glass"></i>
               </button>
@@ -1109,7 +1085,7 @@ const DocumentsReport = (props) => {
             )}
           </div>
         </div>
-        {/* Search input for report smalle in width */}
+
         {titleElement?.width < 500 && props.mobileSearchOpen && (
           <div className="top-full left-0 w-full px-3 pt-1 pb-3">
             <input
@@ -1122,14 +1098,15 @@ const DocumentsReport = (props) => {
             />
           </div>
         )}
+
         <div
           className={`overflow-auto w-full border-b ${
             props.List?.length > 0
               ? isDashboard
                 ? "min-h-[317px]"
                 : currentList?.length === props.docPerPage
-                  ? "h-fit"
-                  : "h-screen"
+                ? "h-fit"
+                : "h-screen"
               : ""
           }`}
         >
@@ -1149,6 +1126,7 @@ const DocumentsReport = (props) => {
                 )}
               </tr>
             </thead>
+
             <tbody className="text-[12px]">
               {props.List?.length > 0 &&
                 currentList.map((item, index) => (
@@ -1173,7 +1151,7 @@ const DocumentsReport = (props) => {
                         handleItemClick={handleItemClick}
                       />
                     ))}
-                    {/* actions */}
+
                     <td className="px-2 py-2">
                       <div className="text-base-content min-w-max flex flex-row gap-x-2 gap-y-1 justify-start items-center">
                         {props.actions?.length > 0 &&
@@ -1198,7 +1176,7 @@ const DocumentsReport = (props) => {
                                       {t(`btnLabel.${act.btnLabel}`)}
                                     </span>
                                   )}
-                                  {/* doc report */}
+
                                   {isOption[item.objectId] &&
                                     act.action === "option" && (
                                       <ul className="absolute -right-1 top-auto z-[70] w-max op-dropdown-content op-menu op-menu-sm shadow-black/20 shadow bg-base-100 text-base-content rounded-box">
@@ -1236,6 +1214,7 @@ const DocumentsReport = (props) => {
                             </React.Fragment>
                           ))}
                       </div>
+
                       {isModal["recreatedocument_" + item.objectId] && (
                         <ModalUi isOpen handleClose={handleCloseModal}>
                           {actLoader[item.objectId] && (
@@ -1279,6 +1258,7 @@ const DocumentsReport = (props) => {
                           )}
                         </ModalUi>
                       )}
+
                       {isModal["saveastemplate_" + item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1297,32 +1277,21 @@ const DocumentsReport = (props) => {
                               <div className="flex flex-wrap gap-1 items-center justify-center mt-2">
                                 <button
                                   className="op-btn-primary op-btn op-btn-sm focus:outline-none text-sm relative"
-                                  onClick={() =>
-                                    handleUseTemplate(templateId, item)
-                                  }
+                                  onClick={() => handleUseTemplate(templateId, item)}
                                 >
                                   <i className="fa-light fa-plus"></i>{" "}
                                   {t("btnLabel.Use")}
                                 </button>
                                 <button
                                   className="op-btn-secondary op-btn op-btn-sm focus:outline-none text-sm relative"
-                                  onClick={() =>
-                                    handleBulkSendTemplate(
-                                      templateId,
-                                      item.objectId
-                                    )
-                                  }
+                                  onClick={() => handleBulkSendTemplate(templateId, item.objectId)}
                                 >
                                   <i className="fa-light fa-plus"></i>{" "}
-                                  {
-                                        `${t(`btnLabel.Quick send`)}`
-                                  }
+                                  {`${t(`btnLabel.Quick send`)}`}
                                 </button>
                                 <button
                                   className="op-btn-secondary op-btn op-btn-sm focus:outline-none text-sm relative"
-                                  onClick={() =>
-                                    navigate(`/template/${templateId}`)
-                                  }
+                                  onClick={() => navigate(`/template/${templateId}`)}
                                 >
                                   <i className="fa-light fa-pen"></i>{" "}
                                   {t(`btnLabel.Edit`)}
@@ -1366,12 +1335,11 @@ const DocumentsReport = (props) => {
                           )}
                         </ModalUi>
                       )}
+
                       {isPrefillModal[item.objectId] && (
                         <PrefillWidgetModal
                           isPrefillModal={isPrefillModal[item.objectId]}
-                          prefillData={xyPosition.find(
-                            (x) => x.Role === "prefill"
-                          )}
+                          prefillData={xyPosition.find((x) => x.Role === "prefill")}
                           forms={forms}
                           setForms={setForms}
                           xyPosition={xyPosition}
@@ -1386,6 +1354,7 @@ const DocumentsReport = (props) => {
                           isSubmit={isSubmit}
                         />
                       )}
+
                       {isModal["extendexpiry_" + item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1403,24 +1372,20 @@ const DocumentsReport = (props) => {
                             <input
                               type="date"
                               className="rounded-full mb-2 bg-base-300 w-full px-4 py-2 text-base-content border-2 hover:border-spacing-2"
-                              defaultValue={
-                                item?.ExpiryDate?.iso?.split("T")?.[0]
-                              }
+                              defaultValue={item?.ExpiryDate?.iso?.split("T")?.[0]}
                               onChange={(e) => {
                                 setExpiryDate(e.target.value);
                               }}
                             />
                             <div className="flex justify-start mb-1">
-                              <button
-                                type="submit"
-                                className="op-btn op-btn-primary"
-                              >
+                              <button type="submit" className="op-btn op-btn-primary">
                                 {t("update")}
                               </button>
                             </div>
                           </form>
                         </ModalUi>
                       )}
+
                       {isDeleteModal[item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1449,12 +1414,11 @@ const DocumentsReport = (props) => {
                           </div>
                         </ModalUi>
                       )}
+
                       {isBulkSend[item.objectId] && (
                         <ModalUi
                           isOpen
-                          title={
-                                t("quick-send")
-                          }
+                          title={t("quick-send")}
                           handleClose={() => setIsBulkSend({})}
                         >
                           {isLoader[item.objectId] ? (
@@ -1471,6 +1435,7 @@ const DocumentsReport = (props) => {
                           )}
                         </ModalUi>
                       )}
+
                       {isShare[item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1502,14 +1467,10 @@ const DocumentsReport = (props) => {
                                   </ShareButton>
                                   <button
                                     className="op-btn op-btn-primary op-btn-outline op-btn-xs md:op-btn-sm"
-                                    onClick={() =>
-                                      copybtn(share.url, share.email)
-                                    }
+                                    onClick={() => copybtn(share.url, share.email)}
                                   >
                                     <i className="fa-light fa-copy" />
-                                    {copied[share.email]
-                                      ? t("copied")
-                                      : t("copy")}
+                                    {copied[share.email] ? t("copied") : t("copy")}
                                   </button>
                                 </div>
                               </div>
@@ -1518,6 +1479,7 @@ const DocumentsReport = (props) => {
                           </div>
                         </ModalUi>
                       )}
+
                       {isRevoke[item.objectId] && (
                         <ModalUi
                           isOpen
@@ -1554,113 +1516,122 @@ const DocumentsReport = (props) => {
                           </div>
                         </ModalUi>
                       )}
+
                       {isResendMail[item.objectId] && (
                         <ModalUi
                           isOpen
-                          title={
-                                t("resend-mail")
-                          }
+                          title={t("resend-mail")}
                           handleClose={handleResendClose}
                         >
-                            <div className="overflow-y-auto max-h-[340px] md:max-h-[400px]">
-                              {item?.Placeholders?.filter(
-                                (user) => user?.Role !== "prefill"
-                              )?.map((user) => (
-                                <React.Fragment key={user.Id}>
-                                  {isNextStep[user.Id] && (
-                                    <div className="relative ">
-                                      {actLoader[user.Id] && (
-                                        <div className="absolute w-full h-full flex justify-center items-center bg-black bg-opacity-30 z-30">
-                                          <Loader />
-                                        </div>
-                                      )}
-                                      <form
-                                        onSubmit={(e) =>
-                                          handleResendMail(e, item, user)
-                                        }
-                                        className="w-full flex flex-col gap-2 p-3 text-base-content relative"
-                                      >
-                                        <div className="absolute right-5 text-xs z-40">
-                                          <Tooltip
-                                            id={`${user.Id}_help`}
-                                            message={t("resend-mail-help")}
-                                          />
-                                        </div>
-                                        <div>
-                                          <label
-                                            className="text-xs ml-1"
-                                            htmlFor="mailsubject"
-                                          >
-                                            {t("subject")}{" "}
-                                          </label>
-                                          <input
-                                            id="mailsubject"
-                                            className="op-input op-input-bordered op-input-sm focus:outline-none hover:border-base-content w-full text-xs"
-                                            value={mail.subject}
-                                            onChange={(e) =>
-                                              handleSubjectChange(
-                                                e.target.value,
-                                                item
-                                              )
-                                            }
-                                            onInvalid={(e) =>
-                                              e.target.setCustomValidity(
-                                                t("input-required")
-                                              )
-                                            }
-                                            onInput={(e) =>
-                                              e.target.setCustomValidity("")
-                                            }
-                                            required
-                                          />
-                                        </div>
-                                        <div>
-                                          <label
-                                            className="text-xs ml-1"
-                                            htmlFor="mailbody"
-                                          >
-                                            {t("body")}{" "}
-                                          </label>
-                                          <EditorToolbar containerId="toolbar1" />
-                                          <ReactQuill
-                                            id="mailbody"
-                                            theme="snow"
-                                            value={mail.body || ""}
-                                            placeholder="add body of email "
-                                            modules={module1}
-                                            formats={formats}
-                                            onChange={(value) =>
-                                              handlebodyChange(value, item)
-                                            }
-                                          />
-                                        </div>
-                                        <button
-                                          type="submit"
-                                          className="op-btn op-btn-primary"
-                                        >
-                                          {t("resend")}
-                                        </button>
-                                      </form>
-                                    </div>
-                                  )}
-                                  {Object?.keys(isNextStep) <= 0 && (
-                                    <div className="flex justify-between items-center gap-2 my-2 px-3">
-                                      <div className="text-base-content">
-                                        {user?.signerPtr?.Name || "-"}{" "}
-                                        {`<${
-                                          user?.email
-                                            ? user.email
-                                            : user.signerPtr.Email
-                                        }>`}
+                          <div className="overflow-y-auto max-h-[340px] md:max-h-[400px]">
+                            {item?.Placeholders?.filter(
+                              (user) => user?.Role !== "prefill"
+                            )?.map((user) => (
+                              <React.Fragment key={user.Id}>
+                                {isNextStep[user.Id] && (
+                                  <div className="relative ">
+                                    {actLoader[user.Id] && (
+                                      <div className="absolute w-full h-full flex justify-center items-center bg-black bg-opacity-30 z-30">
+                                        <Loader />
                                       </div>
-                                      <>{fetchUserStatus(user, item)}</>
+                                    )}
+                                    <form
+                                      onSubmit={(e) => handleResendMail(e, item, user)}
+                                      className="w-full flex flex-col gap-2 p-3 text-base-content relative"
+                                    >
+                                      <div className="absolute right-5 text-xs z-40">
+                                        <Tooltip
+                                          id={`${user.Id}_help`}
+                                          message={t("resend-mail-help")}
+                                        />
+                                      </div>
+
+                                      {/* ✅ Sender name input */}
+                                      <div>
+                                        <label
+                                          className="text-xs ml-1"
+                                          htmlFor="sendername"
+                                        >
+                                          {t("sender-name", {
+                                            defaultValue: "Sender name"
+                                          })}
+                                        </label>
+                                        <input
+                                          id="sendername"
+                                          className="op-input op-input-bordered op-input-sm focus:outline-none hover:border-base-content w-full text-xs"
+                                          value={senderName}
+                                          onChange={(e) => handleSenderNameChange(e.target.value)}
+                                          placeholder={t("sender-name-placeholder", {
+                                            defaultValue: "e.g. Tramitaciones Energéticas"
+                                          })}
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label
+                                          className="text-xs ml-1"
+                                          htmlFor="mailsubject"
+                                        >
+                                          {t("subject")}{" "}
+                                        </label>
+                                        <input
+                                          id="mailsubject"
+                                          className="op-input op-input-bordered op-input-sm focus:outline-none hover:border-base-content w-full text-xs"
+                                          value={mail.subject}
+                                          onChange={(e) =>
+                                            handleSubjectChange(e.target.value, item)
+                                          }
+                                          onInvalid={(e) =>
+                                            e.target.setCustomValidity(t("input-required"))
+                                          }
+                                          onInput={(e) => e.target.setCustomValidity("")}
+                                          required
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <label
+                                          className="text-xs ml-1"
+                                          htmlFor="mailbody"
+                                        >
+                                          {t("body")}{" "}
+                                        </label>
+                                        <EditorToolbar containerId="toolbar1" />
+                                        <ReactQuill
+                                          id="mailbody"
+                                          theme="snow"
+                                          value={mail.body || ""}
+                                          placeholder="add body of email "
+                                          modules={module1}
+                                          formats={formats}
+                                          onChange={(value) => handlebodyChange(value, item)}
+                                        />
+                                      </div>
+
+                                      <button type="submit" className="op-btn op-btn-primary">
+                                        {t("resend")}
+                                      </button>
+                                    </form>
+                                  </div>
+                                )}
+
+                                {Object?.keys(isNextStep) <= 0 && (
+                                  <div className="flex justify-between items-center gap-2 my-2 px-3">
+                                    <div className="text-base-content">
+                                      {user?.signerPtr?.Name || "-"}{" "}
+                                      {`<${
+                                        user?.email ? user.email : user.signerPtr.Email
+                                      }>`}
                                     </div>
-                                  )}
-                                </React.Fragment>
-                              ))}
-                            </div>
+                                    <>{fetchUserStatus(user, item)}</>
+                                  </div>
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </div>
                         </ModalUi>
                       )}
+
                       <ModalUi
                         title={t("btnLabel.Rename")}
                         isOpen={isModal["rename_" + item.objectId]}
@@ -1693,6 +1664,7 @@ const DocumentsReport = (props) => {
                           </div>
                         </div>
                       </ModalUi>
+
                       {isDownloadModal[item.objectId] && (
                         <DownloadPdfZip
                           setIsDownloadModal={setIsDownloadModal}
@@ -1706,6 +1678,7 @@ const DocumentsReport = (props) => {
                 ))}
             </tbody>
           </table>
+
           {props.List?.length <= 0 && (
             <div
               className={`${
@@ -1713,24 +1686,16 @@ const DocumentsReport = (props) => {
               } flex flex-col items-center justify-center w-ful bg-base-100 text-base-content rounded-xl py-4`}
             >
               <div className="w-[60px] h-[60px] overflow-hidden">
-                <img
-                  className="w-full h-full object-contain"
-                  src={pad}
-                  alt="img"
-                />
+                <img className="w-full h-full object-contain" src={pad} alt="img" />
               </div>
-              <div className="text-sm font-semibold">
-                {t("no-data-avaliable")}
-              </div>
+              <div className="text-sm font-semibold">{t("no-data-avaliable")}</div>
             </div>
           )}
         </div>
+
         <div className="op-join flex flex-wrap items-center p-2">
           {props.List.length > props.docPerPage && (
-            <button
-              onClick={() => paginateBack()}
-              className="op-join-item op-btn op-btn-sm"
-            >
+            <button onClick={() => paginateBack()} className="op-join-item op-btn op-btn-sm">
               {t("prev")}
             </button>
           )}
@@ -1739,25 +1704,24 @@ const DocumentsReport = (props) => {
               key={i}
               onClick={() => setCurrentPage(x)}
               disabled={x === "..."}
-              className={`${
-                x === currentPage ? "op-btn-active" : ""
-              } op-join-item op-btn op-btn-sm`}
+              className={`${x === currentPage ? "op-btn-active" : ""} op-join-item op-btn op-btn-sm`}
             >
               {x}
             </button>
           ))}
           {props.List.length > props.docPerPage && (
-            <button
-              onClick={() => paginateFront()}
-              className="op-join-item op-btn op-btn-sm"
-            >
+            <button onClick={() => paginateFront()} className="op-join-item op-btn op-btn-sm">
               {t("next")}
             </button>
           )}
         </div>
+
         <CustomizeMail
           setIsMailModal={setIsMailModal}
           setCustomizeMail={setCustomizeMail}
+          senderName={senderName}
+          setSenderName={setSenderNameState}
+          setSenderNameGlobal={setSenderName}
           documentId={documentId}
           signerList={signerList}
           setIsSend={setIsSend}
@@ -1770,14 +1734,15 @@ const DocumentsReport = (props) => {
           setDocumentDetails={setDocumentDetails}
           handleClose={handleCloseMail}
         />
+
         <ModalUi
           isOpen={isSend}
           title={
             mailStatus === "success"
               ? t("mails-sent")
               : mailStatus === "quotareached"
-                ? t("quota-mail-head")
-                : t("mail-not-delivered")
+              ? t("quota-mail-head")
+              : t("mail-not-delivered")
           }
           handleClose={() => {
             setIsSend(false);
@@ -1792,9 +1757,7 @@ const DocumentsReport = (props) => {
                   <p>
                     {currUserId
                       ? t("placeholder-mail-alert-you")
-                      : t("placeholder-mail-alert", {
-                          name: signerList[0]?.Name
-                        })}
+                      : t("placeholder-mail-alert", { name: signerList[0]?.Name })}
                   </p>
                 ) : (
                   <p>{t("placeholder-alert-4")}</p>
@@ -1812,25 +1775,15 @@ const DocumentsReport = (props) => {
                 ) : (
                   <p>{t("placeholder-alert-6")}</p>
                 )}
-                {currUserId && (
-                  <p className="mt-1">{t("placeholder-alert-5")}</p>
-                )}
+                {currUserId && <p className="mt-1">{t("placeholder-alert-5")}</p>}
               </div>
             )}
-            {!mailStatus && (
-              <div className="w-full h-[1px] bg-[#9f9f9f] my-[15px]"></div>
-            )}
+            {!mailStatus && <div className="w-full h-[1px] bg-[#9f9f9f] my-[15px]"></div>}
             {mailStatus !== "quotareached" && (
-              <div
-                className={
-                  mailStatus === "success" ? "flex justify-center mt-1" : ""
-                }
-              >
+              <div className={mailStatus === "success" ? "flex justify-center mt-1" : ""}>
                 {currUserId && (
                   <button
-                    onClick={() =>
-                      handleRecipientSign(documentDetails?.objectId, currUserId)
-                    }
+                    onClick={() => handleRecipientSign(documentDetails?.objectId, currUserId)}
                     type="button"
                     className="op-btn op-btn-primary mr-1"
                   >
@@ -1850,6 +1803,7 @@ const DocumentsReport = (props) => {
             )}
           </div>
         </ModalUi>
+
         <ModalUi
           title={t(`report-heading.${objInfoModal.title}`)}
           isOpen={objInfoModal.title}

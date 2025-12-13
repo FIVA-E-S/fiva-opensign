@@ -5,6 +5,23 @@ import Mailgun from 'mailgun.js';
 import { smtpenable, smtpsecure, updateMailCount } from '../../Utils.js';
 import { createTransport } from 'nodemailer';
 import axios from 'axios';
+
+function buildFromHeader(displayName, email) {
+  const name = (displayName || '').trim();
+  const addr = (email || '').trim();
+
+  if (!addr) return name;
+  if (!name) return addr;
+
+  const safeName = name.replace(/"/g, '\\"');
+  return `"${safeName}" <${addr}>`;
+}
+
+function getBaseHeaders() {
+  const pool = process.env.SENDGRID_IP_POOL;
+  return pool ? { 'X-SMTPAPI': JSON.stringify({ ip_pool: pool }) } : undefined;
+}
+
 async function sendMailProvider(req, plan, monthchange) {
   const mailgunApiKey = process.env.MAILGUN_API_KEY;
   try {
@@ -101,7 +118,7 @@ async function sendMailProvider(req, plan, monthchange) {
               const certificateBuffer = fs.readFileSync(certificatePath);
               const certificate = {
                 filename: 'certificate.pdf',
-                content: smtpenable ? certificateBuffer : undefined, //fs.readFileSync('./exports/exported_file_1223.pdf'),
+                content: smtpenable ? certificateBuffer : undefined,
                 data: smtpenable ? undefined : certificateBuffer,
               };
               attachment = [file, certificate];
@@ -112,15 +129,32 @@ async function sendMailProvider(req, plan, monthchange) {
           } else {
             attachment = [file];
           }
-          const from = req.params.from || '';
-          const mailsender = smtpenable ? process.env.SMTP_USER_EMAIL : process.env.MAILGUN_SENDER;
+
           const replyto = req.params?.replyto || '';
+
+          // Keep existing behavior as fallback
+          const requestFromName = req.params.from || '';
+
+          const fromName = requestFromName || process.env.SMTP_FROM_NAME || '';
+
+
+          // For SMTP, allow overriding From email separately (useful for SendGrid)
+          const smtpMailFrom = process.env.SMTP_MAIL_FROM || process.env.SMTP_USER_EMAIL;
+
+          const mailsender = smtpenable ? smtpMailFrom : process.env.MAILGUN_SENDER;
+
+          // SendGrid IP Pool header (SMTP only)
+          const headers = smtpenable ? getBaseHeaders() : undefined;
+
           const messageParams = {
-            from: from + ' <' + mailsender + '>',
+            from: smtpenable
+              ? buildFromHeader(fromName, mailsender)
+              : requestFromName + ' <' + mailsender + '>',
             to: req.params.recipient,
             subject: req.params.subject,
             text: req.params.text || 'mail',
             html: req.params.html || '',
+            ...(headers ? { headers } : {}),
             attachments: smtpenable ? attachment : undefined,
             attachment: smtpenable ? undefined : attachment,
             bcc: req.params.bcc ? req.params.bcc : undefined,
@@ -206,15 +240,26 @@ async function sendMailProvider(req, plan, monthchange) {
         }
       }
     } else {
-      const from = req.params.from || '';
-      const mailsender = smtpenable ? process.env.SMTP_USER_EMAIL : process.env.MAILGUN_SENDER;
       const replyto = req.params?.replyto || '';
+
+      const requestFromName = req.params.from || '';
+      const fromName = process.env.SMTP_FROM_NAME || requestFromName;
+
+      const smtpMailFrom = process.env.SMTP_MAIL_FROM || process.env.SMTP_USER_EMAIL;
+
+      const mailsender = smtpenable ? smtpMailFrom : process.env.MAILGUN_SENDER;
+
+      const headers = smtpenable ? getBaseHeaders() : undefined;
+
       const messageParams = {
-        from: from + ' <' + mailsender + '>',
+        from: smtpenable
+          ? buildFromHeader(fromName, mailsender)
+          : requestFromName + ' <' + mailsender + '>',
         to: req.params.recipient,
         subject: req.params.subject,
         text: req.params.text || 'mail',
         html: req.params.html || '',
+        ...(headers ? { headers } : {}),
         bcc: req.params.bcc ? req.params.bcc : undefined,
         replyTo: replyto ? replyto : undefined,
       };

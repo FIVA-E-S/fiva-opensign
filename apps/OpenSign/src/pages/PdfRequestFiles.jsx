@@ -48,7 +48,8 @@ import {
   widgetDataValue,
   getOriginalWH,
   handleCheckResponse,
-  convertJpegToPng
+  convertJpegToPng,
+  getSenderName
 } from "../constant/Utils";
 import Header from "../components/pdf/PdfHeader";
 import RenderPdf from "../components/pdf/RenderPdf";
@@ -98,6 +99,7 @@ function PdfRequestFiles(
     message: t("loading-mssg")
   });
   const [isDocId, setIsDocId] = useState(false);
+  const [senderName, setSenderNameState] = useState(getSenderName());
   const [pdfNewWidth, setPdfNewWidth] = useState();
   const [pdfOriginalWH, setPdfOriginalWH] = useState([]);
   const [signerPos, setSignerPos] = useState([]);
@@ -814,8 +816,8 @@ function PdfRequestFiles(
                       let senderEmail =
                         pdfDetails?.[0]?.ExtUserPtr?.Email;
                       let senderPhone = pdfDetails?.[0]?.ExtUserPtr?.Phone;
-                      const senderName =
-                        pdfDetails?.[0].ExtUserPtr.Name;
+                      const senderNameVal =
+                        senderName || pdfDetails?.[0].ExtUserPtr.Name;
                       const documentName = pdfDetails?.[0].Name;
                       try {
                         let url = `${localStorage.getItem("baseUrl")}functions/sendmailv3`;
@@ -858,7 +860,7 @@ function PdfRequestFiles(
                           const variables = {
                             document_title: documentName,
                             note: pdfDetails?.[0]?.Note,
-                            sender_name: senderName,
+                            sender_name: senderNameVal,
                             sender_mail: senderEmail,
                             sender_phone: senderPhone,
                             receiver_name: user?.Name || "",
@@ -876,7 +878,7 @@ function PdfRequestFiles(
                         }
                         const mailparam = {
                           note: pdfDetails?.[0]?.Note || "",
-                          senderName: senderName,
+                          senderName: senderNameVal,
                           senderMail: senderEmail,
                           title: documentName,
                           organization: orgName,
@@ -890,8 +892,7 @@ function PdfRequestFiles(
                           subject: replaceVar?.subject
                             ? replaceVar?.subject
                             : mailTemplate(mailparam).subject,
-                          from:
-                            senderEmail,
+                          from: senderNameVal || "",
                           html: replaceVar?.body
                             ? replaceVar?.body
                             : mailTemplate(mailparam).body

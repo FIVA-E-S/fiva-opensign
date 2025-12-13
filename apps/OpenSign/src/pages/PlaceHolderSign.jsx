@@ -42,7 +42,9 @@ import {
   mailTemplate,
   getOriginalWH,
   defaultMailBody,
-  defaultMailSubject
+  defaultMailSubject,
+  getSenderName,
+  setSenderName
 } from "../constant/Utils";
 import RenderPdf from "../components/pdf/RenderPdf";
 import { useNavigate } from "react-router";
@@ -98,6 +100,7 @@ function PlaceHolderSign() {
   const [isSelectListId, setIsSelectId] = useState();
   const [isSendAlert, setIsSendAlert] = useState({});
   const [isSend, setIsSend] = useState(false);
+  const [senderName, setSenderNameState] = useState(getSenderName());
   const [copied, setCopied] = useState(false);
   const [isAddSigner, setIsAddSigner] = useState(false);
   const [fontSize, setFontSize] = useState();
@@ -1205,8 +1208,8 @@ function PlaceHolderSign() {
         const orgName = pdfDetails[0]?.ExtUserPtr.Company
           ? pdfDetails[0].ExtUserPtr.Company
           : "";
-        const senderName =
-          pdfDetails?.[0].ExtUserPtr.Name;
+        const senderNameVal =
+          senderName || pdfDetails?.[0].ExtUserPtr.Name;
         const documentName = `${pdfDetails?.[0].Name}`;
         let replaceVar;
 
@@ -1224,7 +1227,7 @@ function PlaceHolderSign() {
           const variables = {
             document_title: documentName,
             note: pdfDetails?.[0]?.Note,
-            sender_name: senderName,
+            sender_name: senderNameVal,
             sender_mail: senderEmail,
             sender_phone: senderPhone || "",
             receiver_name: signerMail[i]?.Name || "",
@@ -1253,7 +1256,7 @@ function PlaceHolderSign() {
           const variables = {
             document_title: documentName,
             note: pdfDetails?.[0]?.Note,
-            sender_name: senderName,
+            sender_name: senderNameVal,
             sender_mail: senderEmail,
             sender_phone: senderPhone || "",
             receiver_name: signerMail[i]?.Name || "",
@@ -1266,7 +1269,7 @@ function PlaceHolderSign() {
           replaceVar = replaceMailVaribles(mailSubject, htmlReqBody, variables);
         }
         const mailparam = {
-          senderName: senderName,
+          senderName: senderNameVal,
           note: pdfDetails?.[0]?.Note || "",
           senderMail: senderEmail,
           title: documentName,
@@ -1281,11 +1284,8 @@ function PlaceHolderSign() {
             ? replaceVar?.subject
             : mailTemplate(mailparam).subject,
           replyto: senderEmail,
-          from:
-            senderEmail,
-          html: replaceVar?.body
-            ? replaceVar?.body
-            : mailTemplate(mailparam).body
+          from: senderNameVal || "",
+          html: replaceVar.body
         };
 
         sendMail = await axios.post(url, params, { headers: headers });
@@ -1305,6 +1305,7 @@ function PlaceHolderSign() {
           data = {
             RequestBody: htmlReqBody,
             RequestSubject: requestSubject,
+            SenderName: senderNameVal
             SendMail: true
           };
         } else if (
@@ -1314,6 +1315,7 @@ function PlaceHolderSign() {
           data = {
             RequestBody: tenantMailTemplate?.body,
             RequestSubject: tenantMailTemplate?.subject,
+            SenderName: senderNameVal
             SendMail: true
           };
         } else {
@@ -2084,6 +2086,16 @@ function PlaceHolderSign() {
                       {
                           isCustomize && (
                             <>
+                              <div className="mt-2">
+                                <label className="text-xs ml-1">{t("sender-name")}</label>
+                                <input
+                                  className="op-input op-input-bordered op-input-sm w-full text-xs"
+                                  value={senderName}
+                                  onChange={(e) => setSenderNameState(e.target.value)}
+                                  placeholder={pdfDetails?.[0]?.ExtUserPtr?.Name || ""}
+                                />
+                              </div>
+
                               <EmailBody
                                 editorRef={editorRef}
                                 requestBody={requestBody}
@@ -2096,6 +2108,7 @@ function PlaceHolderSign() {
                                 onClick={() => {
                                   setRequestBody(defaultBody);
                                   setRequestSubject(defaultSubject);
+                                  setSenderNameState(pdfDetails?.[0]?.ExtUserPtr?.Name || "");
                                 }}
                               >
                                 <span>{t("reset-to-default")}</span>
