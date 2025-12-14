@@ -303,7 +303,7 @@ export default async function GenerateCertificate(docDetails) {
   let yPosition7 = yPosition6 - 20;
   let yPosition8 = yPosition7 - 35;
 
-  auditTrail.slice(0, 3).forEach(async (x, i) => {
+  for (const [i, x] of auditTrail.slice(0, 3).entries()) {
     const embedPng = x.Signature ? await pdfDoc.embedPng(x.Signature) : '';
     page.drawText(`Signer ${i + 1}`, {
       x: 30,
@@ -448,12 +448,12 @@ export default async function GenerateCertificate(docDetails) {
     yPosition6 = yPosition5 - 20;
     yPosition7 = yPosition6 - 20;
     yPosition8 = yPosition8 - 174;
-  });
+  }
 
   if (auditTrail.length > 3) {
     let currentPageIndex = 1;
     let currentPage = page;
-    auditTrail.slice(3).forEach(async (x, i) => {
+    for (const [i, x] of auditTrail.slice(3).entries()) {
       const embedPng = x.Signature ? await pdfDoc.embedPng(x.Signature) : '';
 
       // Calculate remaining space on current page
@@ -626,7 +626,7 @@ export default async function GenerateCertificate(docDetails) {
       yPosition6 = yPosition5 - 20;
       yPosition7 = yPosition6 - 20;
       yPosition8 = yPosition8 - 174;
-    });
+    }
   }
 
   const pdfBytes = await pdfDoc.save();
