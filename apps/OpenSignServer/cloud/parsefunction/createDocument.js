@@ -6,28 +6,36 @@ import axios from 'axios';
 export default async function createDocument(request) {
   const { templateId, signers, title, webhookUrl } = request.params;
 
-  if (!request.user) {
-    throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'User not authenticated');
-  }
-
   if (!templateId) {
     throw new Parse.Error(Parse.Error.INVALID_QUERY, 'Missing templateId');
   }
 
+  // 1. Fetch Template (moved up to allow user inference)
+  const templateQuery = new Parse.Query('contracts_Template');
+  templateQuery.equalTo('objectId', templateId);
+  templateQuery.include('ExtUserPtr');
+  templateQuery.include('ExtUserPtr.TenantId');
+  const template = await templateQuery.first({ useMasterKey: true });
+
+  if (!template) {
+    throw new Parse.Error(Parse.Error.OBJECT_NOT_FOUND, 'Template not found');
+  }
+
+  let actingUser = request.user;
+
+  // If no user but Master Key is used, try to infer user from template
+  if (!actingUser && request.master) {
+      actingUser = template.get('CreatedBy');
+      if (!actingUser) {
+          throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'Template has no creator to act as user');
+      }
+  } else if (!actingUser) {
+    throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'User not authenticated');
+  }
+
+  const _template = template.toJSON();
+
   try {
-    // 1. Fetch Template
-    const templateQuery = new Parse.Query('contracts_Template');
-    templateQuery.equalTo('objectId', templateId);
-    templateQuery.include('ExtUserPtr');
-    templateQuery.include('ExtUserPtr.TenantId');
-    const template = await templateQuery.first({ useMasterKey: true });
-
-    if (!template) {
-      throw new Parse.Error(Parse.Error.OBJECT_NOT_FOUND, 'Template not found');
-    }
-
-    const _template = template.toJSON();
-
     // 2. Prepare Document Data
     const doc = new Parse.Object('contracts_Document');
 
@@ -38,7 +46,7 @@ export default async function createDocument(request) {
     doc.set('URL', _template.URL);
     doc.set('SignedUrl', _template.URL); // Initial state
     doc.set('ExtUserPtr', _template.ExtUserPtr); // Keep the organization/user pointer from template
-    doc.set('CreatedBy', request.user); // The user calling the API is the creator
+    doc.set('CreatedBy', actingUser); // The user calling the API is the creator
     doc.set('SendinOrder', _template.SendinOrder || false);
     doc.set('AutomaticReminders', _template.AutomaticReminders || false);
     doc.set('RemindOnceInEvery', _template.RemindOnceInEvery || 5);
@@ -85,7 +93,7 @@ export default async function createDocument(request) {
                         email: signerMatch.email,
                         // Add other fields if available
                     },
-                    user: request.user
+                    user: actingUser
                 };
                 const contactRes = await savecontact(contactReq);
                 contactId = contactRes.objectId;
@@ -93,7 +101,7 @@ export default async function createDocument(request) {
             } catch (e) {
                 // If duplicate, fetch existing
                  const query = new Parse.Query('contracts_Contactbook');
-                 query.equalTo('CreatedBy', request.user);
+                 query.equalTo('CreatedBy', actingUser);
                  query.notEqualTo('IsDeleted', true);
                  query.equalTo('Email', signerMatch.email);
                  const existingContact = await query.first({ useMasterKey: true });
@@ -158,8 +166,8 @@ export default async function createDocument(request) {
             }
 
             // Sender Details
-            const senderName = request.user.get('Name') || request.user.get('username');
-            const senderEmail = request.user.get('Email') || request.user.get('email');
+            const senderName = actingUser.get('Name') || actingUser.get('username');
+            const senderEmail = actingUser.get('Email') || actingUser.get('email');
             const orgName = _template.ExtUserPtr?.Company || "";
 
             // Calculate Expiry
@@ -233,11 +241,11 @@ export default async function createDocument(request) {
                     from: senderEmail,
                     replyto: senderEmail,
                     html: finalBody,
-                    extUserId: request.user.id
+                    extUserId: actingUser.id
                 };
 
                 // Call sendmailv3
-                await sendmailv3({ params: params, user: request.user });
+                await sendmailv3({ params: params, user: actingUser });
             }
         } else {
             console.log("Skipping email: public_url header missing");
