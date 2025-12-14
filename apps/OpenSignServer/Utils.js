@@ -174,11 +174,16 @@ export function generateId(length) {
 
 // Format date and time for the selected timezone
 export const formatTimeInTimezone = (date, timezone) => {
-  const nyDate = timezone && toZonedTime(date, timezone);
-  const generatedDate = timezone
-    ? format(nyDate, 'EEE, dd MMM yyyy HH:mm:ss zzz', { timeZone: timezone })
-    : new Date(date).toUTCString();
-  return generatedDate;
+  try {
+    const nyDate = timezone && toZonedTime(date, timezone);
+    const generatedDate = timezone
+      ? format(nyDate, 'EEE, dd MMM yyyy HH:mm:ss zzz', { timeZone: timezone })
+      : new Date(date).toUTCString();
+    return generatedDate;
+  } catch (error) {
+    console.error(`Error in formatTimeInTimezone with timezone '${timezone}':`, error.message);
+    return new Date(date).toUTCString();
+  }
 };
 
 // `getSecureUrl` is used to return local secure url if local files
@@ -306,11 +311,19 @@ export const selectFormat = data => {
 };
 
 export function formatDateTime(date, dateFormat, timeZone, is12Hour) {
-  const zonedDate = toZonedTime(date, timeZone); // Convert date to the given timezone
-  const timeFormat = is12Hour ? 'hh:mm:ss a' : 'HH:mm:ss';
-  return dateFormat
-    ? format(zonedDate, `${selectFormat(dateFormat)}, ${timeFormat} 'GMT' XXX`, { timeZone })
-    : formatTimeInTimezone(date, timeZone);
+  try {
+    if (!timeZone) {
+      return formatTimeInTimezone(date, timeZone);
+    }
+    const zonedDate = toZonedTime(date, timeZone); // Convert date to the given timezone
+    const timeFormat = is12Hour ? 'hh:mm:ss a' : 'HH:mm:ss';
+    return dateFormat
+      ? format(zonedDate, `${selectFormat(dateFormat)}, ${timeFormat} 'GMT' XXX`, { timeZone })
+      : formatTimeInTimezone(date, timeZone);
+  } catch (error) {
+    console.error(`Error in formatDateTime with timezone '${timeZone}':`, error.message);
+    return formatTimeInTimezone(date, '');
+  }
 }
 export const randomId = () => {
   const randomBytes = crypto.getRandomValues(new Uint16Array(1));
