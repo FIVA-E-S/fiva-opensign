@@ -4,7 +4,7 @@ import { mailTemplate, replaceMailVaribles, appName } from '../../Utils.js';
 import axios from 'axios';
 
 export default async function createDocument(request) {
-  const { templateId, signers, title, webhookUrl } = request.params;
+  const { templateId, signers, title, webhookUrl, emailSubject, emailBody } = request.params;
 
   if (!templateId) {
     throw new Parse.Error(Parse.Error.INVALID_QUERY, 'Missing templateId');
@@ -204,8 +204,8 @@ export default async function createDocument(request) {
                 };
 
                 // Template substitution
-                let subject = _template.ExtUserPtr?.TenantId?.RequestSubject;
-                let body = _template.ExtUserPtr?.TenantId?.RequestBody;
+                let subject = emailSubject || _template.ExtUserPtr?.TenantId?.RequestSubject;
+                let body = emailBody || _template.ExtUserPtr?.TenantId?.RequestBody;
                 
                 let finalSubject, finalBody;
 
