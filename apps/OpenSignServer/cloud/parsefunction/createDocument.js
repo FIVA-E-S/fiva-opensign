@@ -15,6 +15,7 @@ export default async function createDocument(request) {
   templateQuery.equalTo('objectId', templateId);
   templateQuery.include('ExtUserPtr');
   templateQuery.include('ExtUserPtr.TenantId');
+  templateQuery.include('CreatedBy');
   const template = await templateQuery.first({ useMasterKey: true });
 
   if (!template) {
@@ -209,9 +210,12 @@ export default async function createDocument(request) {
                 
                 let finalSubject, finalBody;
 
-                if (subject && body) {
+                if (body) {
+                    if (!subject) {
+                         subject = `${senderName} has requested you to sign "${doc.get('Name')}"`;
+                    }
                     const replacedRequestBody = body.replace(/"/g, "'");
-                    const htmlReqBody = "<html><head><meta http-equiv='Content-Type' content='text/html; charset=UTF-8' /></head><body>" + replacedRequestBody + "</body></html>";
+                    const htmlReqBody = replacedRequestBody.includes('<html>') ? replacedRequestBody : "<html><head><meta http-equiv='Content-Type' content='text/html; charset=UTF-8' /></head><body>" + replacedRequestBody + "</body></html>";
                     
                     const variables = {
                         document_title: doc.get('Name'),
