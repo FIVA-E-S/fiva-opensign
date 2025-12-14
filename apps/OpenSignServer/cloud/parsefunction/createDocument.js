@@ -1,6 +1,6 @@
 import sendmailv3 from './sendMailv3.js';
 import savecontact from './savecontact.js';
-import { mailTemplate, replaceMailVaribles } from '../../Utils.js';
+import { mailTemplate, replaceMailVaribles, appName } from '../../Utils.js';
 import axios from 'axios';
 
 export default async function createDocument(request) {
@@ -166,7 +166,7 @@ export default async function createDocument(request) {
             }
 
             // Sender Details
-            const senderName = actingUser.get('Name') || actingUser.get('username');
+            const senderName = process.env.SMTP_FROM_NAME || actingUser.get('Name') || actingUser.get('username') || appName;
             const senderEmail = actingUser.get('Email') || actingUser.get('email');
             const orgName = _template.ExtUserPtr?.Company || "";
 
@@ -238,7 +238,7 @@ export default async function createDocument(request) {
                 const params = {
                     recipient: signer.email,
                     subject: finalSubject,
-                    from: senderEmail,
+                    from: process.env.SMTP_FROM_NAME || appName,
                     replyto: senderEmail,
                     html: finalBody,
                     extUserId: actingUser.id
