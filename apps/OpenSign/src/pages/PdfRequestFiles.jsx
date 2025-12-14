@@ -915,8 +915,10 @@ function PdfRequestFiles(
                       ?.IsCompleted
                       ? `&completed=true`
                       : "";
+                    const redirectUrl = updatedDoc.updatedPdfDetails?.[0]?.RedirectUrl;
+                    const redirectParam = redirectUrl ? `&redirect_url=${encodeURIComponent(redirectUrl)}` : "";
                     const params =
-                          `docid=${updatedDoc.updatedPdfDetails[0].objectId}&docurl=${encodeURIComponent(url)}${isCompleted}${fileAdapter}`;
+                          `docid=${updatedDoc.updatedPdfDetails[0].objectId}&docurl=${encodeURIComponent(url)}${isCompleted}${fileAdapter}${redirectParam}`;
                     window.location.href = `/success?${params}`;
                   }
                 } else {

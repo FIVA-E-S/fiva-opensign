@@ -282,7 +282,8 @@ export default async function createDocument(request) {
         status: "success",
         objectId: savedDoc.id,
         signingUrl: firstSigningUrl,
-        data: savedDoc.toJSON()
+        data: savedDoc.toJSON(),
+        placeholders: placeholders
     };
 
   } catch (err) {

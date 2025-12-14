@@ -37,11 +37,13 @@ const DocSuccessPage = () => {
       const docUrl = urlParams.get("docurl");
       const certificate = urlParams.get("certificate");
       const completed = urlParams?.get("completed") || false;
+      const redirectUrl = urlParams.get("redirect_url");
       const details = {
         objectId: docId,
         SignedUrl: docUrl,
         CertificateUrl: certificate,
         IsCompleted: completed,
+        RedirectUrl: redirectUrl,
       };
       setPdfDetails([details]);
       const base64Pdf = await getBase64FromUrl(docUrl);
@@ -136,6 +138,22 @@ const DocSuccessPage = () => {
               <p className="mt-4 md:mt-6 text-xs md:text-sm text-gray-500">
                 {t("you-will-receive-email-shortly")}
               </p>
+              {pdfDetails?.[0]?.RedirectUrl && (
+                <div className="mt-4">
+                  <p className="text-sm text-gray-600">
+                    Redirigiendo en {redirectTimeLeft} segundos...
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Si no es redirigido,{" "}
+                    <a
+                      href={pdfDetails?.[0]?.RedirectUrl}
+                      className="text-blue-600 hover:underline"
+                    >
+                      haga clic aquí
+                    </a>
+                  </p>
+                </div>
+              )}
             </div>
           </div>
           {isDownloading === "pdf" && (
