@@ -80,7 +80,13 @@ export default async function createDocument(request) {
       // Map input signers to placeholders
       placeholders = await Promise.all(placeholders.map(async (p) => {
         // Find signer by Role (case insensitive)
-        const signerMatch = signers.find(s => s.role && s.role.toLowerCase() === p.Role.toLowerCase());
+        let signerMatch = signers.find(s => s.role && s.role.toLowerCase() === p.Role.toLowerCase());
+        
+        // Fallback: If no match found and only 1 signer provided, use it (assuming single-signer template or user intent)
+        if (!signerMatch && signers.length === 1) {
+             signerMatch = signers[0];
+        }
+
         if (signerMatch) {
             // Ensure contact exists
             let contactId;
