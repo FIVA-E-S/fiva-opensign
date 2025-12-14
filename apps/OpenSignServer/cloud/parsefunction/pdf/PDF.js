@@ -119,7 +119,7 @@ async function updateDoc(docId, url, userId, ipAddress, data, className, sign, d
 // `sendNotifyMail` is used to send notification mail of signer signed the document
 async function sendNotifyMail(doc, signUser, mailProvider, publicUrl) {
   try {
-    const TenantAppName = appName;
+    const TenantAppName = process.env.SMTP_FROM_NAME || appName;
     const logo =
       "<img src='https://qikinnovation.ams3.digitaloceanspaces.com/logo.png' height='50' style='padding:20px'/>";
     const opurl = ` <a href=www.opensignlabs.com target=_blank>here</a>`;
@@ -166,7 +166,7 @@ async function sendCompletedMail(obj) {
   const doc = obj.doc;
   const sender = obj.doc.ExtUserPtr;
   const pdfName = doc.Name;
-  const TenantAppName = appName;
+  const TenantAppName = process.env.SMTP_FROM_NAME || appName;
   const logo =
     "<img src='https://qikinnovation.ams3.digitaloceanspaces.com/logo.png' height='50' style='padding:20px'/>";
   const opurl = ` <a href=www.opensignlabs.com target=_blank>here</a>`;
@@ -478,7 +478,7 @@ async function PDF(req) {
           isCompleted ? documentHash : undefined
         );
         
-          await sendMailsaveCertifcate(doc, pfx, isCustomMail, mailProvider, `signed_${name}`);
+          await sendMailsaveCertifcate(_resDoc, pfx, isCustomMail, mailProvider, `signed_${name}`);
 
         // Trigger Webhook (Signed/Completed)
         const webhookUrl = resDoc.get('WebhookUrl');
