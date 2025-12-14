@@ -479,9 +479,6 @@ async function PDF(req) {
         );
         
           await sendMailsaveCertifcate(doc, pfx, isCustomMail, mailProvider, `signed_${name}`);
-        } else {
-          unlinkFile(pfxname);
-        }
 
         // Trigger Webhook (Signed/Completed)
         const webhookUrl = resDoc.get('WebhookUrl');
@@ -499,9 +496,7 @@ async function PDF(req) {
                 console.error("Error sending webhook (signed):", e);
             }
         }
-        } else {
-          unlinkFile(pfxname);
-        }
+
         // below code is used to remove exported signed pdf file from exports folder
         unlinkFile(signedFilePath);
         // console.log(`New Signed PDF created called: ${filePath}`);
@@ -512,6 +507,8 @@ async function PDF(req) {
           error.code = 400; // Set the error code (e.g., 400 for bad request)
           throw error;
         }
+      } else {
+        unlinkFile(pfxname);
       }
     } else {
       const error = new Error('Pdf file not present!');
