@@ -138,6 +138,9 @@ const DocSuccessPage = () => {
               <p className="mt-4 md:mt-6 text-xs md:text-sm text-gray-500">
                 {t("you-will-receive-email-shortly")}
               </p>
+              <p className="mt-2 text-xs md:text-sm text-gray-500">
+                Puedes cerrar esta ventana.
+              </p>
               {pdfDetails?.[0]?.RedirectUrl && (
                 <div className="mt-4">
                   <p className="text-sm text-gray-600">
