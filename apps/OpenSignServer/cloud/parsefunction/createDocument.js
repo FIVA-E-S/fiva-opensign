@@ -4,7 +4,7 @@ import { mailTemplate, replaceMailVaribles, appName } from '../../Utils.js';
 import axios from 'axios';
 
 export default async function createDocument(request) {
-  const { templateId, signers, title, webhookUrl, emailSubject, emailBody } = request.params;
+  const { templateId, signers, title, webhookUrl, emailSubject, emailBody, publicUrl: paramPublicUrl } = request.params;
 
   if (!templateId) {
     throw new Parse.Error(Parse.Error.INVALID_QUERY, 'Missing templateId');
@@ -155,8 +155,9 @@ export default async function createDocument(request) {
     const savedDoc = await doc.save(null, { useMasterKey: true });
     
     // 5. Send Emails
+    let firstSigningUrl = null;
     try {
-        const publicUrl = request.headers.public_url;
+        const publicUrl = paramPublicUrl || request.headers.public_url;
         if (publicUrl) {
             const baseUrl = new URL(publicUrl);
             const hostUrl = baseUrl.origin;
@@ -188,10 +189,11 @@ export default async function createDocument(request) {
                 if (signerObjId) {
                      signPdf = `${hostUrl}/load/recipientSignPdf/${savedDoc.id}/${signerObjId}`;
                 } else {
-                     // Fallback to login link if no contact ID (should not happen if contact creation worked)
                      const encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}`).toString('base64');
                      signPdf = `${hostUrl}/login/${encodeBase64}`;
                 }
+                
+                if (!firstSigningUrl) firstSigningUrl = signPdf;
                 
                 // Prepare Mail Params
                 const mailparam = {
@@ -279,6 +281,7 @@ export default async function createDocument(request) {
     return {
         status: "success",
         objectId: savedDoc.id,
+        signingUrl: firstSigningUrl,
         data: savedDoc.toJSON()
     };
 
