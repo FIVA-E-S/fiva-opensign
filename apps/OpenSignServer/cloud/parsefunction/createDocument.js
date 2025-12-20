@@ -4,296 +4,351 @@ import { mailTemplate, replaceMailVaribles, appName } from '../../Utils.js';
 import axios from 'axios';
 
 export default async function createDocument(request) {
-  const { templateId, signers, title, webhookUrl, emailSubject, emailBody, publicUrl: paramPublicUrl } = request.params;
+    const { templateId, signers, title, webhookUrl, emailSubject, emailBody, publicUrl: paramPublicUrl, fields } = request.params;
 
-  if (!templateId) {
-    throw new Parse.Error(Parse.Error.INVALID_QUERY, 'Missing templateId');
-  }
-
-  // 1. Fetch Template (moved up to allow user inference)
-  const templateQuery = new Parse.Query('contracts_Template');
-  templateQuery.equalTo('objectId', templateId);
-  templateQuery.include('ExtUserPtr');
-  templateQuery.include('ExtUserPtr.TenantId');
-  templateQuery.include('CreatedBy');
-  const template = await templateQuery.first({ useMasterKey: true });
-
-  if (!template) {
-    throw new Parse.Error(Parse.Error.OBJECT_NOT_FOUND, 'Template not found');
-  }
-
-  let actingUser = request.user;
-
-  // If no user but Master Key is used, try to infer user from template
-  if (!actingUser && request.master) {
-      actingUser = template.get('CreatedBy');
-      if (!actingUser) {
-          throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'Template has no creator to act as user');
-      }
-  } else if (!actingUser) {
-    throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'User not authenticated');
-  }
-
-  const _template = template.toJSON();
-
-  try {
-    // 2. Prepare Document Data
-    const doc = new Parse.Object('contracts_Document');
-
-    // Copy simple fields
-    doc.set('Name', title || _template.Name);
-    doc.set('Description', _template.Description);
-    doc.set('Note', _template.Note);
-    doc.set('URL', _template.URL);
-    doc.set('SignedUrl', _template.URL); // Initial state
-    doc.set('ExtUserPtr', _template.ExtUserPtr); // Keep the organization/user pointer from template
-    doc.set('CreatedBy', actingUser); // The user calling the API is the creator
-    doc.set('SendinOrder', _template.SendinOrder || false);
-    doc.set('AutomaticReminders', _template.AutomaticReminders || false);
-    doc.set('RemindOnceInEvery', _template.RemindOnceInEvery || 5);
-    doc.set('TimeToCompleteDays', _template.TimeToCompleteDays || 15);
-    doc.set('IsEnableOTP', _template.IsEnableOTP || false);
-    doc.set('IsTourEnabled', _template.IsTourEnabled || false);
-    doc.set('AllowModifications', _template.AllowModifications || false);
-    doc.set('DocSentAt', new Date());
-    
-    if (webhookUrl) {
-        doc.set('WebhookUrl', webhookUrl);
+    if (!templateId) {
+        throw new Parse.Error(Parse.Error.INVALID_QUERY, 'Missing templateId');
     }
 
-    // Copy complex fields if they exist
-    if (_template.SignatureType) doc.set('SignatureType', _template.SignatureType);
-    if (_template.NotifyOnSignatures) doc.set('NotifyOnSignatures', _template.NotifyOnSignatures);
-    if (_template.Bcc) doc.set('Bcc', _template.Bcc);
-    if (_template.RedirectUrl) doc.set('RedirectUrl', _template.RedirectUrl);
+    // 1. Fetch Template (moved up to allow user inference)
+    const templateQuery = new Parse.Query('contracts_Template');
+    templateQuery.equalTo('objectId', templateId);
+    templateQuery.include('ExtUserPtr');
+    templateQuery.include('ExtUserPtr.TenantId');
+    templateQuery.include('CreatedBy');
+    const template = await templateQuery.first({ useMasterKey: true });
 
-    // Link back to template
-    const templatePtr = new Parse.Object('contracts_Template');
-    templatePtr.id = templateId;
-    doc.set('TemplateId', templatePtr);
+    if (!template) {
+        throw new Parse.Error(Parse.Error.OBJECT_NOT_FOUND, 'Template not found');
+    }
 
-    // 3. Handle Placeholders & Signers
-    let placeholders = _template.Placeholders || [];
-    let documentSigners = []; // To store the signers for the document object (contracts_Contactbook pointers)
+    let actingUser = request.user;
 
-    if (signers && Array.isArray(signers)) {
-      // Map input signers to placeholders
-      placeholders = await Promise.all(placeholders.map(async (p) => {
-        // Find signer by Role (case insensitive)
-        let signerMatch = signers.find(s => s.role && s.role.toLowerCase() === p.Role.toLowerCase());
-        
-        // Fallback: If no match found and only 1 signer provided, use it (assuming single-signer template or user intent)
-        if (!signerMatch && signers.length === 1) {
-             signerMatch = signers[0];
+    // If no user but Master Key is used, try to infer user from template
+    if (!actingUser && request.master) {
+        actingUser = template.get('CreatedBy');
+        if (!actingUser) {
+            throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'Template has no creator to act as user');
         }
-
-        if (signerMatch) {
-            // Ensure contact exists
-            let contactId;
-            let contactObj;
-            
-            try {
-                // Try to create contact
-                const contactReq = {
-                    params: {
-                        name: signerMatch.name || "",
-                        email: signerMatch.email,
-                        // Add other fields if available
-                    },
-                    user: actingUser
-                };
-                const contactRes = await savecontact(contactReq);
-                contactId = contactRes.objectId;
-                contactObj = contactRes;
-            } catch (e) {
-                // If duplicate, fetch existing
-                 const query = new Parse.Query('contracts_Contactbook');
-                 query.equalTo('CreatedBy', actingUser);
-                 query.notEqualTo('IsDeleted', true);
-                 query.equalTo('Email', signerMatch.email);
-                 const existingContact = await query.first({ useMasterKey: true });
-                 if (existingContact) {
-                     contactId = existingContact.id;
-                     contactObj = existingContact.toJSON();
-                 } else {
-                     console.error("Failed to create or find contact for", signerMatch.email, e);
-                     // Fallback: proceed without contact ID (link generation will fail for this signer)
-                 }
-            }
-
-            if (contactId) {
-                // Add to document signers list if not already present
-                if (!documentSigners.find(ds => ds.objectId === contactId)) {
-                    documentSigners.push({
-                        __type: 'Pointer',
-                        className: 'contracts_Contactbook',
-                        objectId: contactId
-                    });
-                }
-
-                return {
-                    ...p,
-                    email: signerMatch.email,
-                    signerObjId: contactId,
-                    signerPtr: {
-                        __type: 'Pointer',
-                        className: 'contracts_Contactbook',
-                        objectId: contactId
-                    }
-                };
-            } else {
-                 return {
-                    ...p,
-                    email: signerMatch.email
-                };
-            }
-        }
-        return p;
-      }));
-    }
-    
-    doc.set('Placeholders', placeholders);
-    if (documentSigners.length > 0) {
-        doc.set('Signers', documentSigners);
+    } else if (!actingUser) {
+        throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'User not authenticated');
     }
 
-    // 4. Save Document
-    const savedDoc = await doc.save(null, { useMasterKey: true });
-    
-    // 5. Send Emails
-    let firstSigningUrl = null;
+    const _template = template.toJSON();
+
     try {
-        const publicUrl = paramPublicUrl || request.headers.public_url;
-        if (publicUrl) {
-            const baseUrl = new URL(publicUrl);
-            const hostUrl = baseUrl.origin;
+        // 2. Prepare Document Data
+        const doc = new Parse.Object('contracts_Document');
 
-            let signerMail = placeholders;
-            if (doc.get('SendinOrder')) {
-                signerMail = signerMail.slice(0, 1); // Only first signer
-            }
+        // Copy simple fields
+        doc.set('Name', title || _template.Name);
+        doc.set('Description', _template.Description);
+        doc.set('Note', _template.Note);
+        doc.set('URL', _template.URL);
+        doc.set('SignedUrl', _template.URL); // Initial state
+        doc.set('ExtUserPtr', _template.ExtUserPtr); // Keep the organization/user pointer from template
+        doc.set('CreatedBy', actingUser); // The user calling the API is the creator
+        doc.set('SendinOrder', _template.SendinOrder || false);
+        doc.set('AutomaticReminders', _template.AutomaticReminders || false);
+        doc.set('RemindOnceInEvery', _template.RemindOnceInEvery || 5);
+        doc.set('TimeToCompleteDays', _template.TimeToCompleteDays || 15);
+        doc.set('IsEnableOTP', _template.IsEnableOTP || false);
+        doc.set('IsTourEnabled', _template.IsTourEnabled || false);
+        doc.set('AllowModifications', _template.AllowModifications || false);
+        doc.set('DocSentAt', new Date());
 
-            // Sender Details
-            const senderName = process.env.SMTP_FROM_NAME || actingUser.get('Name') || actingUser.get('username') || appName;
-            const senderEmail = actingUser.get('Email') || actingUser.get('email');
-            const orgName = _template.ExtUserPtr?.Company || "";
+        if (webhookUrl) {
+            doc.set('WebhookUrl', webhookUrl);
+        }
 
-            // Calculate Expiry
-            const timeToCompleteDays = doc.get('TimeToCompleteDays') || 15;
-            const ExpireDate = new Date(savedDoc.createdAt);
-            ExpireDate.setDate(ExpireDate.getDate() + timeToCompleteDays);
-            const localExpireDate = ExpireDate.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+        // Copy complex fields if they exist
+        if (_template.SignatureType) doc.set('SignatureType', _template.SignatureType);
+        if (_template.NotifyOnSignatures) doc.set('NotifyOnSignatures', _template.NotifyOnSignatures);
+        if (_template.Bcc) doc.set('Bcc', _template.Bcc);
+        if (_template.RedirectUrl) doc.set('RedirectUrl', _template.RedirectUrl);
 
-            for (const signer of signerMail) {
-                if (!signer.email) continue;
+        // Link back to template
+        const templatePtr = new Parse.Object('contracts_Template');
+        templatePtr.id = templateId;
+        doc.set('TemplateId', templatePtr);
 
-                // Construct Sign URL (Direct Link)
-                // Format: /load/recipientSignPdf/:docId/:contactBookId
-                const signerObjId = signer.signerObjId;
-                
-                let signPdf;
-                if (signerObjId) {
-                     signPdf = `${hostUrl}/load/recipientSignPdf/${savedDoc.id}/${signerObjId}`;
-                } else {
-                     const encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}`).toString('base64');
-                     signPdf = `${hostUrl}/login/${encodeBase64}`;
+        // 3. Handle Placeholders & Signers
+        let placeholders = _template.Placeholders || [];
+        let documentSigners = []; // To store the signers for the document object (contracts_Contactbook pointers)
+
+        if (signers && Array.isArray(signers)) {
+            // Map input signers to placeholders
+            placeholders = await Promise.all(placeholders.map(async (p) => {
+                // Find signer by Role (case insensitive)
+                let signerMatch = signers.find(s => s.role && s.role.toLowerCase() === p.Role.toLowerCase());
+
+                // Fallback: If no match found and only 1 signer provided, use it (assuming single-signer template or user intent)
+                if (!signerMatch && signers.length === 1) {
+                    signerMatch = signers[0];
                 }
-                
-                if (!firstSigningUrl) firstSigningUrl = signPdf;
-                
-                // Prepare Mail Params
-                const mailparam = {
-                    senderName: senderName,
-                    note: doc.get('Note') || '',
-                    senderMail: senderEmail,
-                    title: doc.get('Name'),
-                    organization: orgName,
-                    localExpireDate: localExpireDate,
-                    signingUrl: signPdf,
-                };
 
-                // Template substitution
-                let subject = emailSubject || _template.ExtUserPtr?.TenantId?.RequestSubject;
-                let body = emailBody || _template.ExtUserPtr?.TenantId?.RequestBody;
-                
-                let finalSubject, finalBody;
+                if (signerMatch) {
+                    // Ensure contact exists
+                    let contactId;
+                    let contactObj;
 
-                if (body) {
-                    if (!subject) {
-                         subject = `${senderName} has requested you to sign "${doc.get('Name')}"`;
+                    try {
+                        // Try to create contact
+                        const contactReq = {
+                            params: {
+                                name: signerMatch.name || "",
+                                email: signerMatch.email,
+                                // Add other fields if available
+                            },
+                            user: actingUser
+                        };
+                        const contactRes = await savecontact(contactReq);
+                        contactId = contactRes.objectId;
+                        contactObj = contactRes;
+                    } catch (e) {
+                        // If duplicate, fetch existing
+                        const query = new Parse.Query('contracts_Contactbook');
+                        query.equalTo('CreatedBy', actingUser);
+                        query.notEqualTo('IsDeleted', true);
+                        query.equalTo('Email', signerMatch.email);
+                        const existingContact = await query.first({ useMasterKey: true });
+                        if (existingContact) {
+                            contactId = existingContact.id;
+                            contactObj = existingContact.toJSON();
+                        } else {
+                            console.error("Failed to create or find contact for", signerMatch.email, e);
+                            // Fallback: proceed without contact ID (link generation will fail for this signer)
+                        }
                     }
-                    const replacedRequestBody = body.replace(/"/g, "'");
-                    const htmlReqBody = replacedRequestBody.includes('<html>') ? replacedRequestBody : "<html><head><meta http-equiv='Content-Type' content='text/html; charset=UTF-8' /></head><body>" + replacedRequestBody + "</body></html>";
-                    
-                    const variables = {
-                        document_title: doc.get('Name'),
-                        note: doc.get('Note') || '',
-                        sender_name: senderName,
-                        sender_mail: senderEmail,
-                        sender_phone: _template.ExtUserPtr?.Phone || '',
-                        receiver_name: signer.Name || '', // Name might not be in placeholder
-                        receiver_email: signer.email,
-                        receiver_phone: signer.Phone || '',
-                        expiry_date: localExpireDate,
-                        company_name: orgName,
-                        signing_url: signPdf,
-                    };
-                    const replaceVar = replaceMailVaribles(subject, htmlReqBody, variables);
-                    finalSubject = replaceVar.subject;
-                    finalBody = replaceVar.body;
-                } else {
-                    const templateRes = mailTemplate(mailparam);
-                    finalSubject = templateRes.subject;
-                    finalBody = templateRes.body;
+
+                    if (contactId) {
+                        // Add to document signers list if not already present
+                        if (!documentSigners.find(ds => ds.objectId === contactId)) {
+                            documentSigners.push({
+                                __type: 'Pointer',
+                                className: 'contracts_Contactbook',
+                                objectId: contactId
+                            });
+                        }
+
+                        return {
+                            ...p,
+                            email: signerMatch.email,
+                            signerObjId: contactId,
+                            signerPtr: {
+                                __type: 'Pointer',
+                                className: 'contracts_Contactbook',
+                                objectId: contactId
+                            }
+                        };
+                    } else {
+                        return {
+                            ...p,
+                            email: signerMatch.email
+                        };
+                    }
                 }
-                
-                const params = {
-                    recipient: signer.email,
-                    subject: finalSubject,
-                    from: process.env.SMTP_FROM_NAME || appName,
-                    replyto: senderEmail,
-                    html: finalBody,
-                    extUserId: actingUser.id
-                };
+                return p;
+            }));
+        }
 
-                // Call sendmailv3
-                await sendmailv3({ params: params, user: actingUser });
+        // --- NEW: Map fields to placeholders (widgets) ---
+        if (fields && typeof fields === 'object') {
+            const fieldKeys = Object.keys(fields);
+            if (fieldKeys.length > 0) {
+                // Iterate over each placeholder (role/signer-group)
+                placeholders = placeholders.map(ph => {
+                    if (!ph.placeHolder || !Array.isArray(ph.placeHolder)) return ph;
+
+                    // Iterate over pages in the placeholder
+                    const updatedPlaceHolders = ph.placeHolder.map(page => {
+                        if (!page.pos || !Array.isArray(page.pos)) return page;
+
+                        // Iterate over widgets (pos) in the page
+                        const updatedPos = page.pos.map(widget => {
+                            const wName = widget.name;
+                            const wOptName = widget.options?.name;
+                            const wLabel = widget.options?.label || "";
+
+                            // Find a key in 'fields' that matches any of these
+                            const matchedKey = fieldKeys.find(k => {
+                                return (wName === k) ||
+                                    (wOptName === k) ||
+                                    (wLabel === k) ||
+                                    (wLabel.toUpperCase() === k.toUpperCase()); // Loose matching for labels
+                            });
+
+                            if (matchedKey) {
+                                const val = fields[matchedKey];
+                                const newOptions = { ...widget.options };
+                                newOptions.defaultValue = val;
+                                newOptions.response = val;
+
+                                return {
+                                    ...widget,
+                                    options: newOptions
+                                };
+                            }
+
+                            return widget;
+                        });
+
+                        return {
+                            ...page,
+                            pos: updatedPos
+                        };
+                    });
+
+                    return {
+                        ...ph,
+                        placeHolder: updatedPlaceHolders
+                    };
+                });
             }
-        } else {
-            console.log("Skipping email: public_url header missing");
         }
-    } catch (e) {
-        console.error("Error sending email:", e);
-    }
-    
-    // 6. Trigger Webhook (Sent) - REMOVED to avoid race condition
-    // The calling server (Fiva) sets status to 'sent' upon receiving the response.
-    /*
-    if (webhookUrl) {
+
+        doc.set('Placeholders', placeholders);
+        if (documentSigners.length > 0) {
+            doc.set('Signers', documentSigners);
+        }
+
+        // 4. Save Document
+        const savedDoc = await doc.save(null, { useMasterKey: true });
+
+        // 5. Send Emails
+        let firstSigningUrl = null;
         try {
-            await axios.post(webhookUrl, {
-                event: 'sent',
-                document_id: savedDoc.id,
-                status: 'sent',
-                timestamp: new Date().toISOString()
-            });
+            const publicUrl = paramPublicUrl || request.headers.public_url;
+            if (publicUrl) {
+                const baseUrl = new URL(publicUrl);
+                const hostUrl = baseUrl.origin;
+
+                let signerMail = placeholders;
+                if (doc.get('SendinOrder')) {
+                    signerMail = signerMail.slice(0, 1); // Only first signer
+                }
+
+                // Sender Details
+                const senderName = process.env.SMTP_FROM_NAME || actingUser.get('Name') || actingUser.get('username') || appName;
+                const senderEmail = actingUser.get('Email') || actingUser.get('email');
+                const orgName = _template.ExtUserPtr?.Company || "";
+
+                // Calculate Expiry
+                const timeToCompleteDays = doc.get('TimeToCompleteDays') || 15;
+                const ExpireDate = new Date(savedDoc.createdAt);
+                ExpireDate.setDate(ExpireDate.getDate() + timeToCompleteDays);
+                const localExpireDate = ExpireDate.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+
+                for (const signer of signerMail) {
+                    if (!signer.email) continue;
+
+                    // Construct Sign URL (Direct Link)
+                    // Format: /load/recipientSignPdf/:docId/:contactBookId
+                    const signerObjId = signer.signerObjId;
+
+                    let signPdf;
+                    if (signerObjId) {
+                        signPdf = `${hostUrl}/load/recipientSignPdf/${savedDoc.id}/${signerObjId}`;
+                    } else {
+                        const encodeBase64 = Buffer.from(`${savedDoc.id}/${signer.email}`).toString('base64');
+                        signPdf = `${hostUrl}/login/${encodeBase64}`;
+                    }
+
+                    if (!firstSigningUrl) firstSigningUrl = signPdf;
+
+                    // Prepare Mail Params
+                    const mailparam = {
+                        senderName: senderName,
+                        note: doc.get('Note') || '',
+                        senderMail: senderEmail,
+                        title: doc.get('Name'),
+                        organization: orgName,
+                        localExpireDate: localExpireDate,
+                        signingUrl: signPdf,
+                    };
+
+                    // Template substitution
+                    let subject = emailSubject || _template.ExtUserPtr?.TenantId?.RequestSubject;
+                    let body = emailBody || _template.ExtUserPtr?.TenantId?.RequestBody;
+
+                    let finalSubject, finalBody;
+
+                    if (body) {
+                        if (!subject) {
+                            subject = `${senderName} has requested you to sign "${doc.get('Name')}"`;
+                        }
+                        const replacedRequestBody = body.replace(/"/g, "'");
+                        const htmlReqBody = replacedRequestBody.includes('<html>') ? replacedRequestBody : "<html><head><meta http-equiv='Content-Type' content='text/html; charset=UTF-8' /></head><body>" + replacedRequestBody + "</body></html>";
+
+                        const variables = {
+                            document_title: doc.get('Name'),
+                            note: doc.get('Note') || '',
+                            sender_name: senderName,
+                            sender_mail: senderEmail,
+                            sender_phone: _template.ExtUserPtr?.Phone || '',
+                            receiver_name: signer.Name || '', // Name might not be in placeholder
+                            receiver_email: signer.email,
+                            receiver_phone: signer.Phone || '',
+                            expiry_date: localExpireDate,
+                            company_name: orgName,
+                            signing_url: signPdf,
+                        };
+                        const replaceVar = replaceMailVaribles(subject, htmlReqBody, variables);
+                        finalSubject = replaceVar.subject;
+                        finalBody = replaceVar.body;
+                    } else {
+                        const templateRes = mailTemplate(mailparam);
+                        finalSubject = templateRes.subject;
+                        finalBody = templateRes.body;
+                    }
+
+                    const params = {
+                        recipient: signer.email,
+                        subject: finalSubject,
+                        from: process.env.SMTP_FROM_NAME || appName,
+                        replyto: senderEmail,
+                        html: finalBody,
+                        extUserId: actingUser.id
+                    };
+
+                    // Call sendmailv3
+                    await sendmailv3({ params: params, user: actingUser });
+                }
+            } else {
+                console.log("Skipping email: public_url header missing");
+            }
         } catch (e) {
-            console.error("Error sending webhook:", e);
+            console.error("Error sending email:", e);
         }
+
+        // 6. Trigger Webhook (Sent) - REMOVED to avoid race condition
+        // The calling server (Fiva) sets status to 'sent' upon receiving the response.
+        /*
+        if (webhookUrl) {
+            try {
+                await axios.post(webhookUrl, {
+                    event: 'sent',
+                    document_id: savedDoc.id,
+                    status: 'sent',
+                    timestamp: new Date().toISOString()
+                });
+            } catch (e) {
+                console.error("Error sending webhook:", e);
+            }
+        }
+        */
+
+        // 7. Return result
+        return {
+            status: "success",
+            objectId: savedDoc.id,
+            signingUrl: firstSigningUrl,
+            data: savedDoc.toJSON(),
+            placeholders: placeholders
+        };
+
+    } catch (err) {
+        console.error('Error in createDocument:', err);
+        throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Failed to create document: ' + err.message);
     }
-    */
-
-    // 7. Return result
-    return {
-        status: "success",
-        objectId: savedDoc.id,
-        signingUrl: firstSigningUrl,
-        data: savedDoc.toJSON(),
-        placeholders: placeholders
-    };
-
-  } catch (err) {
-    console.error('Error in createDocument:', err);
-    throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Failed to create document: ' + err.message);
-  }
 }
