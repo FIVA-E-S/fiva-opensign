@@ -435,8 +435,8 @@ export const getSignerPages = (xyPosition = [], currentKey, signerId) => {
     const candidates =
       signerId !== undefined && signerId !== null && signerId !== ""
         ? xyPosition.filter(
-            (item) => item.Id === signerId || item.signerObjId === signerId
-          )
+          (item) => item.Id === signerId || item.signerObjId === signerId
+        )
         : xyPosition;
     for (const signer of candidates) {
       const pages = signer?.placeHolder || [];
@@ -902,12 +902,12 @@ export const createDocument = async (
       : {};
     const TemplateId = Doc?.objectId
       ? {
-          TemplateId: {
-            __type: "Pointer",
-            className: "contracts_Template",
-            objectId: Doc?.objectId
-          }
+        TemplateId: {
+          __type: "Pointer",
+          className: "contracts_Template",
+          objectId: Doc?.objectId
         }
+      }
       : {};
     const data = {
       Name: Doc.Name,
@@ -1059,7 +1059,7 @@ export const onChangeInput = (
       setXyPosition(xyData);
     } else {
       const getPageNumer = getPlaceHolder.filter(
-        (data) => data.pageNumber === index
+        (data) => data.pageNumber == index
       );
       if (getPageNumer.length > 0) {
         const getXYdata = getPageNumer[0].pos;
@@ -1107,7 +1107,7 @@ export const onChangeInput = (
           return position;
         });
         const newUpdateSignPos = getPlaceHolder.map((obj) => {
-          if (obj.pageNumber === index) {
+          if (obj.pageNumber == index) {
             return { ...obj, pos: addSignPos };
           }
           return obj;
@@ -1158,7 +1158,7 @@ export const onChangeInput = (
     });
 
     const updatePlaceholder = xyPosition.map((obj, ind) => {
-      if (ind === index) {
+      if (ind == index) {
         return { ...obj, pos: updatePosition };
       }
       return obj;
@@ -1233,7 +1233,7 @@ export const onChangeHeightOfTextArea = (
     });
 
     const updatePlaceholder = xyPosition.map((obj, ind) => {
-      if (ind === index) {
+      if (ind == index) {
         return { ...obj, pos: updatePosition };
       }
       return obj;
@@ -1648,14 +1648,14 @@ export function onSaveImage(
           // below condition to exclude apply all for image widget
           item.type === widgetsType && item.type !== "image"
             ? {
-                ...item,
-                SignUrl: image.src,
-                ImageType: image.imgType,
-                options: {
-                  ...item.options,
-                  response: image.src
-                }
+              ...item,
+              SignUrl: image.src,
+              ImageType: image.imgType,
+              options: {
+                ...item.options,
+                response: image.src
               }
+            }
             : item // Otherwise, keep it unchanged
       )
     }));
@@ -3454,10 +3454,10 @@ export function formatDateTime(date, dateFormat, timeZone, is12Hour) {
   const timeFormat = is12Hour ? "hh:mm:ss a" : "HH:mm:ss";
   return dateFormat
     ? format(
-        zonedDate,
-        `${selectFormat(dateFormat)}, ${timeFormat} 'GMT' XXX`,
-        { timeZone }
-      )
+      zonedDate,
+      `${selectFormat(dateFormat)}, ${timeFormat} 'GMT' XXX`,
+      { timeZone }
+    )
     : formatTimeInTimezone(date, timeZone);
 }
 
