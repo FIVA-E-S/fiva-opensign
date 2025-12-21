@@ -477,24 +477,25 @@ async function PDF(req) {
           sign, // sign base64
           isCompleted ? documentHash : undefined
         );
-        
-          await sendMailsaveCertifcate(_resDoc, pfx, isCustomMail, mailProvider, `signed_${name}`);
+
+        _resDoc.SignedUrl = data.imageUrl;
+        await sendMailsaveCertifcate(_resDoc, pfx, isCustomMail, mailProvider, `signed_${name}`);
 
         // Trigger Webhook (Signed/Completed)
         const webhookUrl = resDoc.get('WebhookUrl');
         if (webhookUrl) {
-            try {
-                const eventType = isCompleted ? 'completed' : 'signed';
-                await axios.post(webhookUrl, {
-                    event: eventType,
-                    document_id: docId,
-                    signer_id: signUser.objectId,
-                    status: eventType,
-                    timestamp: new Date().toISOString()
-                });
-            } catch (e) {
-                console.error("Error sending webhook (signed):", e);
-            }
+          try {
+            const eventType = isCompleted ? 'completed' : 'signed';
+            await axios.post(webhookUrl, {
+              event: eventType,
+              document_id: docId,
+              signer_id: signUser.objectId,
+              status: eventType,
+              timestamp: new Date().toISOString()
+            });
+          } catch (e) {
+            console.error("Error sending webhook (signed):", e);
+          }
         }
 
         // below code is used to remove exported signed pdf file from exports folder
