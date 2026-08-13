@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import createDocument from '../cloud/parsefunction/createDocument.js';
+import { createCreateDocument } from '../cloud/parsefunction/createDocument.js';
 
 test('createDocument returns the existing document for the same idempotency key', async t => {
   const previousParse = globalThis.Parse;
@@ -72,6 +72,13 @@ test('createDocument returns the existing document for the same idempotency key'
     globalThis.Parse = previousParse;
   });
 
+  const deliveries = [];
+  const createDocument = createCreateDocument({
+    deliverInitial: async (document, request, key) => {
+      deliveries.push({ document, request, key });
+    },
+  });
+
   const result = await createDocument({
     params: {
       templateId: 'template-1',
@@ -92,4 +99,62 @@ test('createDocument returns the existing document for the same idempotency key'
   const documentQuery = queryFilters.find(query => query.className === 'contracts_Document');
   assert.equal(documentQuery.filters.CreatedBy, actingUser);
   assert.equal(documentQuery.filters.FivaIdempotencyKey, 'stable-key');
+  assert.equal(deliveries.length, 1);
+  assert.equal(deliveries[0].document, existingDocument);
+  assert.equal(deliveries[0].key, 'stable-key');
+});
+
+test('createDocument propagates a pending initial delivery failure on replay', async t => {
+  const previousParse = globalThis.Parse;
+  const actingUser = { id: 'creator-1' };
+  const template = {
+    get: key => (key === 'CreatedBy' ? actingUser : undefined),
+    toJSON: () => ({ Name: 'Template', Placeholders: [] }),
+  };
+  const existingDocument = {
+    id: 'doc-existing',
+    get: key => (key === 'Placeholders' ? [] : undefined),
+    toJSON: () => ({ objectId: 'doc-existing' }),
+  };
+
+  class Query {
+    constructor(className) {
+      this.className = className;
+    }
+
+    equalTo() {
+      return this;
+    }
+
+    include() {
+      return this;
+    }
+
+    async first() {
+      return this.className === 'contracts_Template' ? template : existingDocument;
+    }
+  }
+
+  globalThis.Parse = {
+    Error: class ParseError extends Error {},
+    Query,
+  };
+  t.after(() => {
+    globalThis.Parse = previousParse;
+  });
+
+  const createDocument = createCreateDocument({
+    deliverInitial: async () => {
+      throw new Error('mail provider unavailable');
+    },
+  });
+
+  await assert.rejects(
+    createDocument({
+      params: { templateId: 'template-1', idempotencyKey: 'stable-key' },
+      headers: {},
+      user: actingUser,
+    }),
+    /mail provider unavailable/
+  );
 });

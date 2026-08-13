@@ -58,6 +58,7 @@ export function createRemindDocument({
   sendmail = sendmailv3,
   now = () => new Date(),
   createIdempotencyKey = randomUUID,
+  deliveryCollection,
   reserveDelivery = reserveReminderDelivery,
   markDelivery = markReminderDelivered,
   releaseDelivery = releaseReminderDelivery,
@@ -132,8 +133,17 @@ export function createRemindDocument({
     for (const signer of signers) {
       // Reserve in a separate class protected by a unique DeliveryKey index.
       // eslint-disable-next-line no-await-in-loop
-      const reservation = await reserveDelivery(document, idempotencyKey, signer, { now });
+      const reservation = await reserveDelivery(document, idempotencyKey, signer, {
+        now,
+        collection: deliveryCollection,
+      });
       if (!reservation.shouldSend) {
+        if (reservation.state === 'in_progress') {
+          throw new Parse.Error(
+            Parse.Error.INTERNAL_SERVER_ERROR,
+            'Reminder delivery is already in progress'
+          );
+        }
         skipped += 1;
         continue;
       }
@@ -201,10 +211,10 @@ export function createRemindDocument({
           throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Reminder email failed');
         }
         // eslint-disable-next-line no-await-in-loop
-        await markDelivery(reservation.delivery, { now });
+        await markDelivery(reservation, { now });
       } catch (error) {
         // eslint-disable-next-line no-await-in-loop
-        await releaseDelivery(reservation.delivery, error);
+        await releaseDelivery(reservation, error, { now });
         throw error;
       }
       sent += 1;

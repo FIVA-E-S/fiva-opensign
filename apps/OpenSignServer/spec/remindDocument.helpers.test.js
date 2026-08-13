@@ -8,6 +8,67 @@ import {
   signerIdentity,
 } from '../cloud/parsefunction/remindDocument.helpers.js';
 import { createRemindDocument } from '../cloud/parsefunction/remindDocument.js';
+import { reserveReminderDelivery } from '../cloud/parsefunction/reminderDelivery.js';
+
+let currentDeliveryCollection;
+
+function matches(row, filter) {
+  return Object.entries(filter).every(([key, expected]) => {
+    if (key === '$or') return expected.some(clause => matches(row, clause));
+    const actual = row[key];
+    if (expected && typeof expected === 'object' && !Array.isArray(expected)) {
+      if ('$in' in expected) return expected.$in.includes(actual);
+      if ('$lte' in expected) return actual <= expected.$lte;
+    }
+    return actual === expected;
+  });
+}
+
+function applyUpdate(row, update) {
+  Object.assign(row, update.$set || {});
+  for (const [key, amount] of Object.entries(update.$inc || {})) {
+    row[key] = Number(row[key] || 0) + amount;
+  }
+  for (const key of Object.keys(update.$unset || {})) delete row[key];
+}
+
+function createReminderDeliveryCollection() {
+  const rows = [];
+  return {
+    rows,
+    async findOneAndUpdate(filter, update) {
+      const row = rows.find(candidate => matches(candidate, filter));
+      if (!row) return { value: null };
+      applyUpdate(row, update);
+      return { value: { ...row } };
+    },
+    async insertOne(row) {
+      if (rows.some(existing => existing.DeliveryKey === row.DeliveryKey)) {
+        const error = new Error('duplicate key');
+        error.code = 11000;
+        throw error;
+      }
+      rows.push({ ...row });
+      return { insertedId: row._id };
+    },
+    async findOne(filter) {
+      return rows.find(row => matches(row, filter)) || null;
+    },
+    async updateOne(filter, update) {
+      const row = rows.find(candidate => matches(candidate, filter));
+      if (!row) return { matchedCount: 0 };
+      applyUpdate(row, update);
+      return { matchedCount: 1 };
+    },
+  };
+}
+
+function createTestRemindDocument(options = {}) {
+  return createRemindDocument({
+    deliveryCollection: currentDeliveryCollection,
+    ...options,
+  });
+}
 
 function parseObject(id, values = {}) {
   return {
@@ -20,7 +81,8 @@ function parseObject(id, values = {}) {
 function installParseMock(t, document, contacts = {}) {
   const previousParse = global.Parse;
   const queryCalls = [];
-  const reminderDeliveries = [];
+  const deliveryCollection = createReminderDeliveryCollection();
+  currentDeliveryCollection = deliveryCollection;
 
   class ParseError extends Error {
     constructor(code, message) {
@@ -39,9 +101,7 @@ function installParseMock(t, document, contacts = {}) {
       this.className = className;
       this.filters = {};
       assert.ok(
-        ['contracts_Document', 'contracts_Contactbook', 'contracts_ReminderDelivery'].includes(
-          className
-        )
+        ['contracts_Document', 'contracts_Contactbook'].includes(className)
       );
     }
 
@@ -57,58 +117,13 @@ function installParseMock(t, document, contacts = {}) {
       throw new Error('contact not found');
     }
 
-    equalTo(key, value) {
-      this.filters[key] = value;
-      return this;
-    }
-
-    async first() {
-      if (this.className !== 'contracts_ReminderDelivery') return null;
-      return (
-        reminderDeliveries.find(delivery =>
-          Object.entries(this.filters).every(([key, value]) => delivery.get(key) === value)
-        ) || null
-      );
-    }
   }
 
-  class ParseObject {
-    constructor(className) {
-      this.className = className;
-      this.values = {};
-      this.id = null;
-    }
-
-    get(key) {
-      return this.values[key];
-    }
-
-    set(key, value) {
-      this.values[key] = value;
-    }
-
-    unset(key) {
-      delete this.values[key];
-    }
-
-    setACL() {}
-
-    async save() {
-      if (!this.id) {
-        this.id = `reminder-delivery-${reminderDeliveries.length + 1}`;
-        reminderDeliveries.push(this);
-      }
-      return this;
-    }
-  }
-
-  class ACL {}
-
-  global.Parse = { ACL, Error: ParseError, Object: ParseObject, Query };
+  global.Parse = { Error: ParseError, Query };
   t.after(() => {
     global.Parse = previousParse;
   });
-  return { queryCalls, reminderDeliveries };
+  return { queryCalls, reminderDeliveries: deliveryCollection.rows, deliveryCollection };
 }
 
 function reminderDocument(overrides = {}) {
@@ -259,11 +274,38 @@ test('reminder delivery identity is stable for contact pointers', () => {
   assert.equal(signerIdentity(signer), 'contact:contact-1');
 });
 
+test('only one concurrent request reserves the same reminder delivery', async () => {
+  const collection = createReminderDeliveryCollection();
+  const document = { id: 'doc-1' };
+  const signer = { email: 'signer@example.test', signerObjId: 'contact-1' };
+  const current = new Date('2026-08-13T10:00:00Z');
+
+  const reservations = await Promise.all([
+    reserveReminderDelivery(document, 'reminder-1', signer, {
+      collection,
+      now: () => current,
+      createOwnerToken: () => 'worker-1',
+    }),
+    reserveReminderDelivery(document, 'reminder-1', signer, {
+      collection,
+      now: () => current,
+      createOwnerToken: () => 'worker-2',
+    }),
+  ]);
+
+  assert.equal(reservations.filter(reservation => reservation.shouldSend).length, 1);
+  assert.equal(
+    reservations.filter(reservation => reservation.state === 'in_progress').length,
+    1
+  );
+  assert.equal(collection.rows.length, 1);
+});
+
 test('remindDocument reuses the existing document and emails only pending signers', async t => {
   const { creator, document } = reminderDocument();
   const { queryCalls } = installParseMock(t, document);
   const sentMessages = [];
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     now: () => new Date('2026-08-10T10:00:00Z'),
     createIdempotencyKey: () => 'reminder-1',
     sendmail: async message => {
@@ -312,7 +354,7 @@ test('remindDocument renews an expired document before emailing', async t => {
     Placeholders: [{ email: 'pending@example.test', signerObjId: 'contact-pending' }],
   });
   installParseMock(t, document);
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     now: () => new Date('2026-08-13T10:00:00Z'),
     createIdempotencyKey: () => 'expiry-1',
     sendmail: async () => ({ status: 'success' }),
@@ -339,7 +381,7 @@ test('remindDocument ignores prefill placeholders', async t => {
   });
   installParseMock(t, document);
   const recipients = [];
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     sendmail: async message => {
       recipients.push(message.params.recipient);
       return { status: 'success' };
@@ -378,7 +420,7 @@ test('remindDocument resolves a missing email from signerPtr', async t => {
     }),
   });
   const recipients = [];
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     now: () => new Date('2026-08-10T10:00:00Z'),
     createIdempotencyKey: () => 'contact-1',
     sendmail: async message => {
@@ -407,7 +449,7 @@ test('ordered reminders never skip an unresolved first pending signer', async t 
   });
   installParseMock(t, document);
   let sendCount = 0;
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     sendmail: async () => {
       sendCount += 1;
       return { status: 'success' };
@@ -436,7 +478,7 @@ test('unordered reminders fail instead of silently skipping an unresolved signer
   });
   installParseMock(t, document);
   let sendCount = 0;
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     sendmail: async () => {
       sendCount += 1;
       return { status: 'success' };
@@ -465,7 +507,7 @@ test('a partial reminder retry skips recipients already delivered for the same k
   });
   installParseMock(t, document);
   const firstAttempt = [];
-  const failingReminder = createRemindDocument({
+  const failingReminder = createTestRemindDocument({
     now: () => new Date('2026-08-10T10:00:00Z'),
     sendmail: async message => {
       firstAttempt.push(message.params.recipient);
@@ -491,7 +533,7 @@ test('a partial reminder retry skips recipients already delivered for the same k
   assert.deepEqual(firstAttempt, ['first@example.test', 'second@example.test']);
 
   const retryRecipients = [];
-  const retryReminder = createRemindDocument({
+  const retryReminder = createTestRemindDocument({
     now: () => new Date('2026-08-10T10:01:00Z'),
     sendmail: async message => {
       retryRecipients.push(message.params.recipient);
@@ -522,7 +564,7 @@ test('a reminder retry keeps idempotency for more than one hundred signers', asy
   const { document } = reminderDocument({ AuditTrail: [], Placeholders: signers });
   const { reminderDeliveries } = installParseMock(t, document);
   const firstRecipients = [];
-  const firstReminder = createRemindDocument({
+  const firstReminder = createTestRemindDocument({
     sendmail: async message => {
       firstRecipients.push(message.params.recipient);
       return { status: 'success' };
@@ -541,7 +583,7 @@ test('a reminder retry keeps idempotency for more than one hundred signers', asy
   });
 
   const retryRecipients = [];
-  const retryReminder = createRemindDocument({
+  const retryReminder = createTestRemindDocument({
     sendmail: async message => {
       retryRecipients.push(message.params.recipient);
       return { status: 'success' };
@@ -568,7 +610,7 @@ test('remindDocument rejects access from a different document owner', async t =>
   const { document } = reminderDocument();
   installParseMock(t, document);
   let sendCount = 0;
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     sendmail: async () => {
       sendCount += 1;
       return { status: 'success' };
@@ -593,7 +635,7 @@ test('remindDocument rejects access from a different document owner', async t =>
 test('completed status is not disclosed before document authorization', async t => {
   const { document } = reminderDocument({ IsCompleted: true });
   installParseMock(t, document);
-  const remindDocument = createRemindDocument();
+  const remindDocument = createTestRemindDocument();
 
   await assert.rejects(
     remindDocument({
@@ -612,7 +654,7 @@ test('remindDocument never emails completed documents', async t => {
   const { document } = reminderDocument({ IsCompleted: true });
   installParseMock(t, document);
   let sendCount = 0;
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     sendmail: async () => {
       sendCount += 1;
       return { status: 'success' };
@@ -637,7 +679,7 @@ test('remindDocument never emails completed documents', async t => {
 test('remindDocument surfaces mail provider failures', async t => {
   const { document } = reminderDocument({ AuditTrail: [] });
   installParseMock(t, document);
-  const remindDocument = createRemindDocument({
+  const remindDocument = createTestRemindDocument({
     sendmail: async () => ({ status: 'error' }),
   });
 

@@ -13,7 +13,7 @@ export default async function createOpenSignSafetyIndexes() {
     await client.connect();
     const database = client.db();
     const migrations = database.collection('Migrationdb');
-    const migrationName = 'opensignSafetyIndexes_1';
+    const migrationName = 'opensignSafetyIndexes_2';
     if (await migrations.findOne({ name: migrationName })) return;
 
     await database.collection('contracts_Document').createIndex(
@@ -36,6 +36,10 @@ export default async function createOpenSignSafetyIndexes() {
       { DeliveryKey: 1 },
       { name: 'uniq_reminder_delivery_key', unique: true }
     );
+    await database.collection('contracts_Document').createIndex(
+      { 'FivaWebhookEvents.Status': 1 },
+      { name: 'idx_fiva_pending_document_webhooks' }
+    );
 
     await migrations.insertOne({
       _id: generateId(10),
@@ -43,7 +47,7 @@ export default async function createOpenSignSafetyIndexes() {
       _created_at: new Date(),
       _updated_at: new Date(),
       executedAt: new Date(),
-      details: 'Created idempotency, webhook outbox and reminder delivery indexes',
+      details: 'Created idempotency, atomic webhook outbox and reminder delivery indexes',
     });
   } catch (error) {
     console.error('ERROR running OpenSign safety index migration:', error);

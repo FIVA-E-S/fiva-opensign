@@ -7,6 +7,7 @@ on:
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.helpers.js"
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.js"
       - "apps/OpenSignServer/cloud/parsefunction/reminderDelivery.js"
+      - "apps/OpenSignServer/cloud/parsefunction/durableMongo.js"
       - "apps/OpenSignServer/cloud/parsefunction/signedWebhook.js"
       - "apps/OpenSignServer/cloud/parsefunction/triggerEvent.js"
       - "apps/OpenSignServer/cloud/parsefunction/webhookOutbox.js"
@@ -43,6 +44,7 @@ jobs:
           ./cloud/parsefunction/remindDocument.helpers.js
           ./cloud/parsefunction/remindDocument.js
           ./cloud/parsefunction/reminderDelivery.js
+          ./cloud/parsefunction/durableMongo.js
           ./cloud/parsefunction/signedWebhook.js
           ./cloud/parsefunction/triggerEvent.js
           ./cloud/parsefunction/webhookOutbox.js

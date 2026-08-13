@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { appName, cloudServerUrl, serverAppId } from '../../Utils.js';
-import { enqueueWebhookDelivery } from './webhookOutbox.js';
+import { addDurableWebhookEvent, flushDocumentWebhookEvents } from './webhookOutbox.js';
 const serverUrl = cloudServerUrl;
 const APPID = serverAppId;
 const masterKEY = process.env.MASTER_KEY;
@@ -72,8 +72,7 @@ export default async function declinedocument(request) {
         updateDoc.set('IsDeclined', true);
         updateDoc.set('DeclineReason', reason);
         updateDoc.set('DeclineBy', declineBy);
-        await updateDoc.save(null, { useMasterKey: true });
-        await enqueueWebhookDelivery(updateDoc.get('WebhookUrl'), {
+        addDurableWebhookEvent(updateDoc, updateDoc.get('WebhookUrl'), {
           event: 'declined',
           document_id: docId,
           user_id: userId,
@@ -81,6 +80,12 @@ export default async function declinedocument(request) {
           status: 'declined',
           timestamp: new Date().toISOString(),
         });
+        await updateDoc.save(null, { useMasterKey: true });
+        try {
+          await flushDocumentWebhookEvents(docId);
+        } catch (error) {
+          console.error('Declined webhook remains queued for durable retry:', error);
+        }
         sendDeclineMail(_doc, publicUrl, userId, reason);
         return 'document declined';
       } else {
@@ -90,8 +95,7 @@ export default async function declinedocument(request) {
         updateDoc.set('IsDeclined', true);
         updateDoc.set('DeclineReason', reason);
         updateDoc.set('DeclineBy', declineBy);
-        await updateDoc.save(null, { useMasterKey: true });
-        await enqueueWebhookDelivery(updateDoc.get('WebhookUrl'), {
+        addDurableWebhookEvent(updateDoc, updateDoc.get('WebhookUrl'), {
           event: 'declined',
           document_id: docId,
           user_id: userId,
@@ -99,6 +103,12 @@ export default async function declinedocument(request) {
           status: 'declined',
           timestamp: new Date().toISOString(),
         });
+        await updateDoc.save(null, { useMasterKey: true });
+        try {
+          await flushDocumentWebhookEvents(docId);
+        } catch (error) {
+          console.error('Declined webhook remains queued for durable retry:', error);
+        }
         sendDeclineMail(_doc, publicUrl, userId, reason);
         return 'document declined';
       }
