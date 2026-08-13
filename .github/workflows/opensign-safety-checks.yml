@@ -26,9 +26,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: apps/OpenSignServer/package-lock.json
-      - run: npm ci
+      - run: npm install --no-audit --no-fund --package-lock=false
       - run: >-
           ESLINT_USE_FLAT_CONFIG=false npx eslint
           cloud/parsefunction/remindDocument.helpers.js
