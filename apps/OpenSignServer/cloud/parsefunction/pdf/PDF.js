@@ -16,6 +16,7 @@ import { Placeholder } from './Placeholder.js';
 import { SignPdf } from '@signpdf/signpdf';
 import { P12Signer } from '@signpdf/signer-p12';
 import { buildDownloadFilename, parseUploadFile } from '../../../utils/fileUtils.js';
+import { postSignedWebhook } from '../signedWebhook.js';
 
 const serverUrl = cloudServerUrl; // process.env.SERVER_URL;
 const APPID = serverAppId;
@@ -486,15 +487,15 @@ async function PDF(req) {
         if (webhookUrl) {
           try {
             const eventType = isCompleted ? 'completed' : 'signed';
-            await axios.post(webhookUrl, {
+            await postSignedWebhook(webhookUrl, {
               event: eventType,
               document_id: docId,
               signer_id: signUser.objectId,
               status: eventType,
-              timestamp: new Date().toISOString()
+              timestamp: new Date().toISOString(),
             });
           } catch (e) {
-            console.error("Error sending webhook (signed):", e);
+            console.error('Error sending webhook (signed):', e);
           }
         }
 

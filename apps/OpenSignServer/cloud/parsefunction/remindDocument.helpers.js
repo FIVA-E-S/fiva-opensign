@@ -36,3 +36,22 @@ export function isSignerAlreadySigned(auditTrail, signer) {
     );
   });
 }
+
+export function signerIdentity(signer) {
+  const pointerId =
+    signer?.signerObjId ||
+    signer?.signerPtr?.objectId ||
+    signer?.signerPtr?.id ||
+    signer?.signerPtr?.toJSON?.()?.objectId;
+  if (pointerId) return `contact:${pointerId}`;
+  if (signer?.email) return `email:${signer.email.toLowerCase()}`;
+  return '';
+}
+
+export function wasReminderDelivered(deliveries, idempotencyKey, signer) {
+  const identity = signerIdentity(signer);
+  if (!identity || !idempotencyKey) return false;
+  return (deliveries || []).some(
+    delivery => delivery?.idempotencyKey === idempotencyKey && delivery?.signerIdentity === identity
+  );
+}

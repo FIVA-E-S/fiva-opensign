@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { cloudServerUrl, serverAppId } from '../../Utils.js';
+import { postSignedWebhook } from './signedWebhook.js';
 
 export default async function triggerEvent(request) {
   const event = request.params.event;
@@ -53,21 +54,21 @@ export default async function triggerEvent(request) {
         updateDoc.id = docRes.id;
         updateDoc.set('AuditTrail', [...auditTrail, newEntry]);
         await updateDoc.save(null, { useMasterKey: true });
-        
+
         // Trigger Webhook (Viewed)
         const webhookUrl = docRes.get('WebhookUrl');
         if (webhookUrl) {
-            try {
-                await axios.post(webhookUrl, {
-                    event: 'viewed',
-                    document_id: docId,
-                    contact_id: contactId,
-                    status: 'viewed',
-                    timestamp: date
-                });
-            } catch (e) {
-                console.error("Error sending webhook (viewed):", e);
-            }
+          try {
+            await postSignedWebhook(webhookUrl, {
+              event: 'viewed',
+              document_id: docId,
+              contact_id: contactId,
+              status: 'viewed',
+              timestamp: date,
+            });
+          } catch (e) {
+            console.error('Error sending webhook (viewed):', e);
+          }
         }
       }
     }

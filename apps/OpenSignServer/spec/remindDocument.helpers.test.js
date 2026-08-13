@@ -5,6 +5,8 @@ import {
   buildSigningUrl,
   isSignerAlreadySigned,
   normalizePublicUrl,
+  signerIdentity,
+  wasReminderDelivered,
 } from '../cloud/parsefunction/remindDocument.helpers.js';
 import { createRemindDocument } from '../cloud/parsefunction/remindDocument.js';
 
@@ -16,7 +18,7 @@ function parseObject(id, values = {}) {
   };
 }
 
-function installParseMock(t, document) {
+function installParseMock(t, document, contacts = {}) {
   const previousParse = global.Parse;
   const queryCalls = [];
 
@@ -34,7 +36,8 @@ function installParseMock(t, document) {
 
   class Query {
     constructor(className) {
-      assert.equal(className, 'contracts_Document');
+      this.className = className;
+      assert.ok(['contracts_Document', 'contracts_Contactbook'].includes(className));
     }
 
     include(path) {
@@ -43,8 +46,10 @@ function installParseMock(t, document) {
     }
 
     async get(documentId, options) {
-      queryCalls.push(['get', documentId, options]);
-      return document;
+      queryCalls.push(['get', this.className, documentId, options]);
+      if (this.className === 'contracts_Document') return document;
+      if (contacts[documentId]) return contacts[documentId];
+      throw new Error('contact not found');
     }
   }
 
@@ -104,6 +109,15 @@ function reminderDocument(overrides = {}) {
       id: 'doc-existing',
       createdAt: new Date('2026-08-01T10:00:00Z'),
       get: key => values[key],
+      set: (key, value) => {
+        values[key] = value;
+      },
+      saveCalls: 0,
+      async save() {
+        this.saveCalls += 1;
+        return this;
+      },
+      values,
     },
   };
 }
@@ -189,11 +203,26 @@ test('isSignerAlreadySigned supports Parse objects and case-insensitive email', 
   );
 });
 
+test('reminder delivery identity is stable for contact pointers', () => {
+  const signer = { signerPtr: { objectId: 'contact-1' } };
+  assert.equal(signerIdentity(signer), 'contact:contact-1');
+  assert.equal(
+    wasReminderDelivered(
+      [{ idempotencyKey: 'retry-1', signerIdentity: 'contact:contact-1' }],
+      'retry-1',
+      signer
+    ),
+    true
+  );
+});
+
 test('remindDocument reuses the existing document and emails only pending signers', async t => {
   const { creator, document } = reminderDocument();
   const queryCalls = installParseMock(t, document);
   const sentMessages = [];
   const remindDocument = createRemindDocument({
+    now: () => new Date('2026-08-10T10:00:00Z'),
+    createIdempotencyKey: () => 'reminder-1',
     sendmail: async message => {
       sentMessages.push(message);
       return { status: 'success' };
@@ -215,8 +244,15 @@ test('remindDocument reuses the existing document and emails only pending signer
     message: 'reminder_sent',
     objectId: 'doc-existing',
     sent: 1,
+    skipped: 0,
+    idempotencyKey: 'reminder-1',
   });
-  assert.deepEqual(queryCalls.at(-1), ['get', 'doc-existing', { useMasterKey: true }]);
+  assert.deepEqual(queryCalls.at(-1), [
+    'get',
+    'contracts_Document',
+    'doc-existing',
+    { useMasterKey: true },
+  ]);
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0].user, creator);
   assert.equal(sentMessages[0].params.recipient, 'pending@example.test');
@@ -224,6 +260,183 @@ test('remindDocument reuses the existing document and emails only pending signer
     sentMessages[0].params.html,
     /https:\/\/sign\.example\.test\/load\/recipientSignPdf\/doc-existing\/contact-pending/
   );
+});
+
+test('remindDocument renews an expired document before emailing', async t => {
+  const { document } = reminderDocument({
+    ExpiryDate: { iso: '2026-08-01T00:00:00Z' },
+    AuditTrail: [],
+    Placeholders: [{ email: 'pending@example.test', signerObjId: 'contact-pending' }],
+  });
+  installParseMock(t, document);
+  const remindDocument = createRemindDocument({
+    now: () => new Date('2026-08-13T10:00:00Z'),
+    createIdempotencyKey: () => 'expiry-1',
+    sendmail: async () => ({ status: 'success' }),
+  });
+
+  await remindDocument({
+    master: true,
+    params: { documentId: 'doc-existing', publicUrl: 'https://sign.example.test' },
+    headers: {},
+    user: null,
+  });
+
+  assert.equal(document.values.ExpiryDate.toISOString(), '2026-08-28T10:00:00.000Z');
+  assert.equal(document.saveCalls, 2);
+});
+
+test('remindDocument resolves a missing email from signerPtr', async t => {
+  const { document } = reminderDocument({
+    AuditTrail: [],
+    Placeholders: [
+      {
+        signerObjId: 'contact-pending',
+        signerPtr: { objectId: 'contact-pending' },
+      },
+    ],
+  });
+  installParseMock(t, document, {
+    'contact-pending': parseObject('contact-pending', {
+      Email: 'resolved@example.test',
+      Name: 'Resolved signer',
+    }),
+  });
+  const recipients = [];
+  const remindDocument = createRemindDocument({
+    now: () => new Date('2026-08-10T10:00:00Z'),
+    createIdempotencyKey: () => 'contact-1',
+    sendmail: async message => {
+      recipients.push(message.params.recipient);
+      return { status: 'success' };
+    },
+  });
+
+  await remindDocument({
+    master: true,
+    params: { documentId: 'doc-existing', publicUrl: 'https://sign.example.test' },
+    headers: {},
+    user: null,
+  });
+  assert.deepEqual(recipients, ['resolved@example.test']);
+});
+
+test('ordered reminders never skip an unresolved first pending signer', async t => {
+  const { document } = reminderDocument({
+    AuditTrail: [],
+    SendinOrder: true,
+    Placeholders: [
+      { signerObjId: 'missing-contact' },
+      { email: 'second@example.test', signerObjId: 'contact-second' },
+    ],
+  });
+  installParseMock(t, document);
+  let sendCount = 0;
+  const remindDocument = createRemindDocument({
+    sendmail: async () => {
+      sendCount += 1;
+      return { status: 'success' };
+    },
+  });
+
+  await assert.rejects(
+    remindDocument({
+      master: true,
+      params: { documentId: 'doc-existing', publicUrl: 'https://sign.example.test' },
+      headers: {},
+      user: null,
+    }),
+    /Pending signer email not found/
+  );
+  assert.equal(sendCount, 0);
+});
+
+test('unordered reminders fail instead of silently skipping an unresolved signer', async t => {
+  const { document } = reminderDocument({
+    AuditTrail: [],
+    Placeholders: [
+      { email: 'first@example.test', signerObjId: 'contact-first' },
+      { signerObjId: 'missing-contact' },
+    ],
+  });
+  installParseMock(t, document);
+  let sendCount = 0;
+  const remindDocument = createRemindDocument({
+    sendmail: async () => {
+      sendCount += 1;
+      return { status: 'success' };
+    },
+  });
+
+  await assert.rejects(
+    remindDocument({
+      master: true,
+      params: { documentId: 'doc-existing', publicUrl: 'https://sign.example.test' },
+      headers: {},
+      user: null,
+    }),
+    /Pending signer email not found/
+  );
+  assert.equal(sendCount, 0);
+});
+
+test('a partial reminder retry skips recipients already delivered for the same key', async t => {
+  const { document } = reminderDocument({
+    AuditTrail: [],
+    Placeholders: [
+      { email: 'first@example.test', signerObjId: 'contact-first' },
+      { email: 'second@example.test', signerObjId: 'contact-second' },
+    ],
+  });
+  installParseMock(t, document);
+  const firstAttempt = [];
+  const failingReminder = createRemindDocument({
+    now: () => new Date('2026-08-10T10:00:00Z'),
+    sendmail: async message => {
+      firstAttempt.push(message.params.recipient);
+      return message.params.recipient === 'second@example.test'
+        ? { status: 'error' }
+        : { status: 'success' };
+    },
+  });
+
+  await assert.rejects(
+    failingReminder({
+      master: true,
+      params: {
+        documentId: 'doc-existing',
+        publicUrl: 'https://sign.example.test',
+        idempotencyKey: 'retry-1',
+      },
+      headers: {},
+      user: null,
+    }),
+    /Reminder email failed/
+  );
+  assert.deepEqual(firstAttempt, ['first@example.test', 'second@example.test']);
+
+  const retryRecipients = [];
+  const retryReminder = createRemindDocument({
+    now: () => new Date('2026-08-10T10:01:00Z'),
+    sendmail: async message => {
+      retryRecipients.push(message.params.recipient);
+      return { status: 'success' };
+    },
+  });
+  const result = await retryReminder({
+    master: true,
+    params: {
+      documentId: 'doc-existing',
+      publicUrl: 'https://sign.example.test',
+      idempotencyKey: 'retry-1',
+    },
+    headers: {},
+    user: null,
+  });
+
+  assert.deepEqual(retryRecipients, ['second@example.test']);
+  assert.equal(result.sent, 1);
+  assert.equal(result.skipped, 1);
 });
 
 test('remindDocument rejects access from a different document owner', async t => {
@@ -250,6 +463,24 @@ test('remindDocument rejects access from a different document owner', async t =>
     error => error.code === global.Parse.Error.OPERATION_FORBIDDEN
   );
   assert.equal(sendCount, 0);
+});
+
+test('completed status is not disclosed before document authorization', async t => {
+  const { document } = reminderDocument({ IsCompleted: true });
+  installParseMock(t, document);
+  const remindDocument = createRemindDocument();
+
+  await assert.rejects(
+    remindDocument({
+      master: false,
+      params: { documentId: 'doc-existing', publicUrl: 'https://sign.example.test' },
+      headers: {},
+      user: parseObject('different-user'),
+    }),
+    error =>
+      error.code === global.Parse.Error.OPERATION_FORBIDDEN &&
+      error.message === 'Document access denied'
+  );
 });
 
 test('remindDocument never emails completed documents', async t => {

@@ -1,9 +1,12 @@
 import sendmailv3 from './sendMailv3.js';
+import { randomUUID } from 'node:crypto';
 import { appName, mailTemplate, replaceMailVaribles } from '../../Utils.js';
 import {
   buildSigningUrl,
   isSignerAlreadySigned,
   normalizePublicUrl,
+  signerIdentity,
+  wasReminderDelivered,
 } from './remindDocument.helpers.js';
 
 function getExpiryDate(document) {
@@ -16,7 +19,43 @@ function getExpiryDate(document) {
   return expiry;
 }
 
-export function createRemindDocument({ sendmail = sendmailv3 } = {}) {
+async function resolveSignerContact(signer) {
+  if (signer?.email) return signer;
+  const contactId = signer?.signerObjId || signer?.signerPtr?.objectId || signer?.signerPtr?.id;
+  if (!contactId) return signer;
+
+  try {
+    const contactQuery = new Parse.Query('contracts_Contactbook');
+    const contact = await contactQuery.get(contactId, { useMasterKey: true });
+    return {
+      ...signer,
+      email: contact.get('Email') || contact.get('email') || '',
+      Name: signer?.Name || signer?.name || contact.get('Name') || contact.get('name') || '',
+      Phone: signer?.Phone || contact.get('Phone') || '',
+      signerObjId: signer?.signerObjId || contactId,
+    };
+  } catch {
+    return signer;
+  }
+}
+
+async function ensureUsableExpiry(document, now) {
+  const currentExpiry = getExpiryDate(document);
+  if (currentExpiry.getTime() > now.getTime()) return currentExpiry;
+
+  const days = Number(document.get('TimeToCompleteDays')) || 15;
+  const renewedExpiry = new Date(now);
+  renewedExpiry.setDate(renewedExpiry.getDate() + days);
+  document.set('ExpiryDate', renewedExpiry);
+  await document.save(null, { useMasterKey: true });
+  return renewedExpiry;
+}
+
+export function createRemindDocument({
+  sendmail = sendmailv3,
+  now = () => new Date(),
+  createIdempotencyKey = randomUUID,
+} = {}) {
   return async function remindDocument(request) {
     const params = request.params || {};
     const documentId = params.documentId;
@@ -30,13 +69,6 @@ export function createRemindDocument({ sendmail = sendmailv3 } = {}) {
     query.include('ExtUserPtr.TenantId');
     const document = await query.get(documentId, { useMasterKey: true });
 
-    if (document.get('IsCompleted')) {
-      throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'Document is already completed');
-    }
-    if (document.get('IsDeclined')) {
-      throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'Document was declined');
-    }
-
     const documentCreator = document.get('CreatedBy');
     if (!request.master && (!request.user || request.user.id !== documentCreator?.id)) {
       throw new Parse.Error(Parse.Error.OPERATION_FORBIDDEN, 'Document access denied');
@@ -44,6 +76,12 @@ export function createRemindDocument({ sendmail = sendmailv3 } = {}) {
     const actingUser = request.user || documentCreator;
     if (!actingUser) {
       throw new Parse.Error(Parse.Error.INVALID_SESSION_TOKEN, 'Document creator not found');
+    }
+    if (document.get('IsCompleted')) {
+      throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'Document is already completed');
+    }
+    if (document.get('IsDeclined')) {
+      throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'Document was declined');
     }
 
     const publicUrl = params.publicUrl || request.headers?.public_url || process.env.PUBLIC_URL;
@@ -54,23 +92,42 @@ export function createRemindDocument({ sendmail = sendmailv3 } = {}) {
     const senderName =
       process.env.SMTP_FROM_NAME || actingUser.get('Name') || actingUser.get('username') || appName;
     const senderEmail = actingUser.get('Email') || actingUser.get('email') || '';
-    const expiryDate = getExpiryDate(document).toLocaleDateString('en-US', {
+    const usableExpiry = await ensureUsableExpiry(document, now());
+    const expiryDate = usableExpiry.toLocaleDateString('en-US', {
       day: 'numeric',
       month: 'long',
       year: 'numeric',
     });
     const auditTrail = document.get('AuditTrail') || [];
-    let signers = document.get('Placeholders') || [];
-    signers = signers.filter(signer => signer?.email && !isSignerAlreadySigned(auditTrail, signer));
+    const pendingSigners = (document.get('Placeholders') || []).filter(
+      signer => !isSignerAlreadySigned(auditTrail, signer)
+    );
+    let signers;
     if (document.get('SendinOrder')) {
-      signers = signers.slice(0, 1);
+      const firstPending = pendingSigners[0];
+      signers = firstPending ? [await resolveSignerContact(firstPending)] : [];
+      if (signers.length && !signers[0]?.email) {
+        throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'Pending signer email not found');
+      }
+    } else {
+      signers = await Promise.all(pendingSigners.map(resolveSignerContact));
+      if (signers.some(signer => !signer?.email)) {
+        throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'Pending signer email not found');
+      }
     }
     if (!signers.length) {
       throw new Parse.Error(Parse.Error.VALIDATION_ERROR, 'No pending signers found');
     }
 
+    const idempotencyKey = params.idempotencyKey || createIdempotencyKey();
+    const deliveries = [...(document.get('ReminderDeliveries') || [])];
     let sent = 0;
+    let skipped = 0;
     for (const signer of signers) {
+      if (wasReminderDelivered(deliveries, idempotencyKey, signer)) {
+        skipped += 1;
+        continue;
+      }
       const signingUrl = buildSigningUrl(hostUrl, document.id, signer);
       const variables = {
         document_title: document.get('Name'),
@@ -134,6 +191,15 @@ export function createRemindDocument({ sendmail = sendmailv3 } = {}) {
         throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Reminder email failed');
       }
       sent += 1;
+      deliveries.push({
+        idempotencyKey,
+        signerIdentity: signerIdentity(signer),
+        sentAt: now().toISOString(),
+      });
+      document.set('ReminderDeliveries', deliveries.slice(-100));
+      // Persist after every recipient so retries never duplicate successful deliveries.
+      // eslint-disable-next-line no-await-in-loop
+      await document.save(null, { useMasterKey: true });
     }
 
     return {
@@ -141,6 +207,8 @@ export function createRemindDocument({ sendmail = sendmailv3 } = {}) {
       message: 'reminder_sent',
       objectId: document.id,
       sent,
+      skipped,
+      idempotencyKey,
     };
   };
 }
