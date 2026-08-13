@@ -16,7 +16,7 @@ import { Placeholder } from './Placeholder.js';
 import { SignPdf } from '@signpdf/signpdf';
 import { P12Signer } from '@signpdf/signer-p12';
 import { buildDownloadFilename, parseUploadFile } from '../../../utils/fileUtils.js';
-import { postSignedWebhook } from '../signedWebhook.js';
+import { enqueueWebhookDelivery } from '../webhookOutbox.js';
 
 const serverUrl = cloudServerUrl; // process.env.SERVER_URL;
 const APPID = serverAppId;
@@ -487,7 +487,7 @@ async function PDF(req) {
         if (webhookUrl) {
           try {
             const eventType = isCompleted ? 'completed' : 'signed';
-            await postSignedWebhook(webhookUrl, {
+            await enqueueWebhookDelivery(webhookUrl, {
               event: eventType,
               document_id: docId,
               signer_id: signUser.objectId,

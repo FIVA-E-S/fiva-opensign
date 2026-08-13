@@ -5,9 +5,12 @@ import {
   buildSigningUrl,
   isSignerAlreadySigned,
   normalizePublicUrl,
-  signerIdentity,
-  wasReminderDelivered,
 } from './remindDocument.helpers.js';
+import {
+  markReminderDelivered,
+  releaseReminderDelivery,
+  reserveReminderDelivery,
+} from './reminderDelivery.js';
 
 function getExpiryDate(document) {
   const explicitExpiry = document.get('ExpiryDate');
@@ -55,6 +58,9 @@ export function createRemindDocument({
   sendmail = sendmailv3,
   now = () => new Date(),
   createIdempotencyKey = randomUUID,
+  reserveDelivery = reserveReminderDelivery,
+  markDelivery = markReminderDelivered,
+  releaseDelivery = releaseReminderDelivery,
 } = {}) {
   return async function remindDocument(request) {
     const params = request.params || {};
@@ -99,9 +105,10 @@ export function createRemindDocument({
       year: 'numeric',
     });
     const auditTrail = document.get('AuditTrail') || [];
-    const pendingSigners = (document.get('Placeholders') || []).filter(
-      signer => !isSignerAlreadySigned(auditTrail, signer)
-    );
+    const pendingSigners = (document.get('Placeholders') || []).filter(signer => {
+      const role = String(signer?.Role || signer?.role || '').toLowerCase();
+      return role !== 'prefill' && !isSignerAlreadySigned(auditTrail, signer);
+    });
     let signers;
     if (document.get('SendinOrder')) {
       const firstPending = pendingSigners[0];
@@ -120,11 +127,13 @@ export function createRemindDocument({
     }
 
     const idempotencyKey = params.idempotencyKey || createIdempotencyKey();
-    const deliveries = [...(document.get('ReminderDeliveries') || [])];
     let sent = 0;
     let skipped = 0;
     for (const signer of signers) {
-      if (wasReminderDelivered(deliveries, idempotencyKey, signer)) {
+      // Reserve in a separate class protected by a unique DeliveryKey index.
+      // eslint-disable-next-line no-await-in-loop
+      const reservation = await reserveDelivery(document, idempotencyKey, signer, { now });
+      if (!reservation.shouldSend) {
         skipped += 1;
         continue;
       }
@@ -175,31 +184,30 @@ export function createRemindDocument({
 
       // Keep delivery sequential so ordered-signature documents never notify
       // a later recipient before the current one.
-      // eslint-disable-next-line no-await-in-loop
-      const result = await sendmail({
-        params: {
-          recipient: signer.email,
-          subject,
-          from: senderName,
-          replyto: senderEmail,
-          html,
-          extUserId: extUser?.id || actingUser.id,
-        },
-        user: actingUser,
-      });
-      if (result?.status !== 'success') {
-        throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Reminder email failed');
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await sendmail({
+          params: {
+            recipient: signer.email,
+            subject,
+            from: senderName,
+            replyto: senderEmail,
+            html,
+            extUserId: extUser?.id || actingUser.id,
+          },
+          user: actingUser,
+        });
+        if (result?.status !== 'success') {
+          throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Reminder email failed');
+        }
+        // eslint-disable-next-line no-await-in-loop
+        await markDelivery(reservation.delivery, { now });
+      } catch (error) {
+        // eslint-disable-next-line no-await-in-loop
+        await releaseDelivery(reservation.delivery, error);
+        throw error;
       }
       sent += 1;
-      deliveries.push({
-        idempotencyKey,
-        signerIdentity: signerIdentity(signer),
-        sentAt: now().toISOString(),
-      });
-      document.set('ReminderDeliveries', deliveries.slice(-100));
-      // Persist after every recipient so retries never duplicate successful deliveries.
-      // eslint-disable-next-line no-await-in-loop
-      await document.save(null, { useMasterKey: true });
     }
 
     return {

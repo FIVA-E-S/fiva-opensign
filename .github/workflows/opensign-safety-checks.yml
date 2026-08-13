@@ -6,11 +6,21 @@ on:
       - "apps/OpenSignServer/cloud/parsefunction/pdf/PDF.js"
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.helpers.js"
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.js"
+      - "apps/OpenSignServer/cloud/parsefunction/reminderDelivery.js"
       - "apps/OpenSignServer/cloud/parsefunction/signedWebhook.js"
       - "apps/OpenSignServer/cloud/parsefunction/triggerEvent.js"
+      - "apps/OpenSignServer/cloud/parsefunction/webhookOutbox.js"
+      - "apps/OpenSignServer/cloud/parsefunction/declinedocument.js"
+      - "apps/OpenSignServer/cloud/parsefunction/createDocument.js"
+      - "apps/OpenSignServer/cloud/main.js"
+      - "apps/OpenSignServer/index.js"
+      - "apps/OpenSignServer/migrationdb/createOpenSignSafetyIndexes.js"
+      - "apps/OpenSignServer/migrationdb/index.js"
       - "apps/OpenSignServer/eslint.safety.config.js"
       - "apps/OpenSignServer/spec/remindDocument.helpers.test.js"
+      - "apps/OpenSignServer/spec/createDocument.test.js"
       - "apps/OpenSignServer/spec/signedWebhook.test.js"
+      - "apps/OpenSignServer/spec/webhookOutbox.test.js"
       - ".github/workflows/opensign-safety-checks.yml"
 
 permissions:
@@ -32,9 +42,23 @@ jobs:
           npx eslint --config ./eslint.safety.config.js
           ./cloud/parsefunction/remindDocument.helpers.js
           ./cloud/parsefunction/remindDocument.js
+          ./cloud/parsefunction/reminderDelivery.js
           ./cloud/parsefunction/signedWebhook.js
           ./cloud/parsefunction/triggerEvent.js
+          ./cloud/parsefunction/webhookOutbox.js
+          ./cloud/parsefunction/declinedocument.js
+          ./cloud/parsefunction/createDocument.js
+          ./index.js
+          ./migrationdb/index.js
+          ./migrationdb/createOpenSignSafetyIndexes.js
           ./spec/remindDocument.helpers.test.js
+          ./spec/createDocument.test.js
           ./spec/signedWebhook.test.js
+          ./spec/webhookOutbox.test.js
       - run: node --check cloud/parsefunction/pdf/PDF.js
-      - run: node --test spec/remindDocument.helpers.test.js spec/signedWebhook.test.js
+      - run: >-
+          node --test
+          spec/remindDocument.helpers.test.js
+          spec/createDocument.test.js
+          spec/signedWebhook.test.js
+          spec/webhookOutbox.test.js

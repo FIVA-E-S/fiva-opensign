@@ -64,6 +64,7 @@ import updateEmailTemplates from './parsefunction/updateEmailTemplates.js';
 import updateUserProfile from './parsefunction/updateUserProfile.js';
 import triggerEvent from './parsefunction/triggerEvent.js';
 import remindDocument from './parsefunction/remindDocument.js';
+import { startWebhookOutboxWorker } from './parsefunction/webhookOutbox.js';
 
 // This afterSave function triggers after an object is added or updated in the specified class, allowing for post-processing logic.
 Parse.Cloud.afterSave('contracts_Document', DocumentAftersave);
@@ -140,3 +141,5 @@ Parse.Cloud.define('remindDocument', remindDocument);
 import createDocument from './parsefunction/createDocument.js';
 Parse.Cloud.define('createDocument', createDocument);
 Parse.Cloud.define('updateuserprofile', updateUserProfile);
+
+startWebhookOutboxWorker();

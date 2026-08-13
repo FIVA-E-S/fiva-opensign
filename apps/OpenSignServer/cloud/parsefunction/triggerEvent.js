@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { cloudServerUrl, serverAppId } from '../../Utils.js';
-import { postSignedWebhook } from './signedWebhook.js';
+import { enqueueWebhookDelivery } from './webhookOutbox.js';
 
 export default async function triggerEvent(request) {
   const event = request.params.event;
@@ -59,7 +59,7 @@ export default async function triggerEvent(request) {
         const webhookUrl = docRes.get('WebhookUrl');
         if (webhookUrl) {
           try {
-            await postSignedWebhook(webhookUrl, {
+            await enqueueWebhookDelivery(webhookUrl, {
               event: 'viewed',
               document_id: docId,
               contact_id: contactId,

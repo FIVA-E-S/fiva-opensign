@@ -1,6 +1,6 @@
 export default [
   {
-    files: ['cloud/**/*.js', 'spec/**/*.js'],
+    files: ['cloud/**/*.js', 'migrationdb/**/*.js', 'spec/**/*.js', 'index.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -11,7 +11,9 @@ export default [
         clearTimeout: 'readonly',
         console: 'readonly',
         global: 'readonly',
+        globalThis: 'readonly',
         process: 'readonly',
+        setInterval: 'readonly',
         setTimeout: 'readonly',
       },
     },

@@ -1,10 +1,30 @@
 import sendmailv3 from './sendMailv3.js';
 import savecontact from './savecontact.js';
 import { mailTemplate, replaceMailVaribles, appName } from '../../Utils.js';
-import axios from 'axios';
+import { buildSigningUrl } from './remindDocument.helpers.js';
+
+const isPrefillPlaceholder = placeholder =>
+    String(placeholder?.Role || placeholder?.role || '').toLowerCase() === 'prefill';
+
+function documentResult(document, publicUrl, idempotentReplay = false) {
+    const placeholders = document.get('Placeholders') || [];
+    const firstSigner = placeholders.find(placeholder => !isPrefillPlaceholder(placeholder));
+    let signingUrl = null;
+    if (publicUrl && firstSigner) {
+        signingUrl = buildSigningUrl(publicUrl, document.id, firstSigner);
+    }
+    return {
+        status: 'success',
+        objectId: document.id,
+        signingUrl,
+        data: document.toJSON(),
+        placeholders,
+        idempotentReplay,
+    };
+}
 
 export default async function createDocument(request) {
-    const { templateId, signers, title, webhookUrl, emailSubject, emailBody, publicUrl: paramPublicUrl, fields } = request.params;
+    const { templateId, signers, title, webhookUrl, emailSubject, emailBody, publicUrl: paramPublicUrl, fields, idempotencyKey } = request.params;
 
     if (!templateId) {
         throw new Parse.Error(Parse.Error.INVALID_QUERY, 'Missing templateId');
@@ -35,6 +55,20 @@ export default async function createDocument(request) {
     }
 
     const _template = template.toJSON();
+    const normalizedIdempotencyKey = String(idempotencyKey || '').trim();
+    if (normalizedIdempotencyKey) {
+        const existingQuery = new Parse.Query('contracts_Document');
+        existingQuery.equalTo('CreatedBy', actingUser);
+        existingQuery.equalTo('FivaIdempotencyKey', normalizedIdempotencyKey);
+        const existingDocument = await existingQuery.first({ useMasterKey: true });
+        if (existingDocument) {
+            return documentResult(
+                existingDocument,
+                paramPublicUrl || request.headers.public_url,
+                true
+            );
+        }
+    }
 
     try {
         // 2. Prepare Document Data
@@ -56,6 +90,9 @@ export default async function createDocument(request) {
         doc.set('IsTourEnabled', _template.IsTourEnabled || false);
         doc.set('AllowModifications', _template.AllowModifications || false);
         doc.set('DocSentAt', new Date());
+        if (normalizedIdempotencyKey) {
+            doc.set('FivaIdempotencyKey', normalizedIdempotencyKey);
+        }
 
         if (webhookUrl) {
             doc.set('WebhookUrl', webhookUrl);
@@ -79,8 +116,11 @@ export default async function createDocument(request) {
         if (signers && Array.isArray(signers)) {
             // Map input signers to placeholders
             placeholders = await Promise.all(placeholders.map(async (p) => {
+                if (isPrefillPlaceholder(p)) return p;
                 // Find signer by Role (case insensitive)
-                let signerMatch = signers.find(s => s.role && s.role.toLowerCase() === p.Role.toLowerCase());
+                let signerMatch = signers.find(
+                    s => s.role && s.role.toLowerCase() === String(p.Role || '').toLowerCase()
+                );
 
                 // Fallback: If no match found and only 1 signer provided, use it (assuming single-signer template or user intent)
                 if (!signerMatch && signers.length === 1) {
@@ -213,7 +253,25 @@ export default async function createDocument(request) {
         }
 
         // 4. Save Document
-        const savedDoc = await doc.save(null, { useMasterKey: true });
+        let savedDoc;
+        try {
+            savedDoc = await doc.save(null, { useMasterKey: true });
+        } catch (saveError) {
+            if (normalizedIdempotencyKey) {
+                const existingQuery = new Parse.Query('contracts_Document');
+                existingQuery.equalTo('CreatedBy', actingUser);
+                existingQuery.equalTo('FivaIdempotencyKey', normalizedIdempotencyKey);
+                const existingDocument = await existingQuery.first({ useMasterKey: true });
+                if (existingDocument) {
+                    return documentResult(
+                        existingDocument,
+                        paramPublicUrl || request.headers.public_url,
+                        true
+                    );
+                }
+            }
+            throw saveError;
+        }
 
         // 5. Send Emails
         let firstSigningUrl = null;
@@ -223,7 +281,7 @@ export default async function createDocument(request) {
                 const baseUrl = new URL(publicUrl);
                 const hostUrl = baseUrl.origin;
 
-                let signerMail = placeholders;
+                let signerMail = placeholders.filter(placeholder => !isPrefillPlaceholder(placeholder));
                 if (doc.get('SendinOrder')) {
                     signerMail = signerMail.slice(0, 1); // Only first signer
                 }
@@ -312,6 +370,7 @@ export default async function createDocument(request) {
                     };
 
                     // Call sendmailv3
+                    // eslint-disable-next-line no-await-in-loop
                     await sendmailv3({ params: params, user: actingUser });
                 }
             } else {
@@ -344,7 +403,8 @@ export default async function createDocument(request) {
             objectId: savedDoc.id,
             signingUrl: firstSigningUrl,
             data: savedDoc.toJSON(),
-            placeholders: placeholders
+            placeholders: placeholders,
+            idempotentReplay: false,
         };
 
     } catch (err) {
