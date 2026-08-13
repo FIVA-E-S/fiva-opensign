@@ -8,6 +8,7 @@ on:
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.js"
       - "apps/OpenSignServer/cloud/parsefunction/signedWebhook.js"
       - "apps/OpenSignServer/cloud/parsefunction/triggerEvent.js"
+      - "apps/OpenSignServer/eslint.safety.config.js"
       - "apps/OpenSignServer/spec/remindDocument.helpers.test.js"
       - "apps/OpenSignServer/spec/signedWebhook.test.js"
       - ".github/workflows/opensign-safety-checks.yml"
@@ -28,12 +29,12 @@ jobs:
           node-version: 22
       - run: npm install --no-audit --no-fund --package-lock=false
       - run: >-
-          ESLINT_USE_FLAT_CONFIG=false npx eslint
-          cloud/parsefunction/remindDocument.helpers.js
-          cloud/parsefunction/remindDocument.js
-          cloud/parsefunction/signedWebhook.js
-          cloud/parsefunction/triggerEvent.js
-          spec/remindDocument.helpers.test.js
-          spec/signedWebhook.test.js
+          npx eslint --config ./eslint.safety.config.js
+          ./cloud/parsefunction/remindDocument.helpers.js
+          ./cloud/parsefunction/remindDocument.js
+          ./cloud/parsefunction/signedWebhook.js
+          ./cloud/parsefunction/triggerEvent.js
+          ./spec/remindDocument.helpers.test.js
+          ./spec/signedWebhook.test.js
       - run: node --check cloud/parsefunction/pdf/PDF.js
       - run: node --test spec/remindDocument.helpers.test.js spec/signedWebhook.test.js
