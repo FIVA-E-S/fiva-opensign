@@ -158,3 +158,125 @@ test('createDocument propagates a pending initial delivery failure on replay', a
     /mail provider unavailable/
   );
 });
+
+test('createDocument marks a first-attempt preparation rejection as definitive', async t => {
+  const previousParse = globalThis.Parse;
+  const actingUser = { id: 'creator-1' };
+  const template = {
+    get: key => (key === 'CreatedBy' ? actingUser : undefined),
+    toJSON: () => ({ Name: 'Template', Placeholders: [] }),
+  };
+
+  class Query {
+    constructor(className) {
+      this.className = className;
+    }
+
+    equalTo() {
+      return this;
+    }
+
+    include() {
+      return this;
+    }
+
+    async first() {
+      return this.className === 'contracts_Template' ? template : null;
+    }
+  }
+
+  class ParseObject {
+    constructor() {
+      throw new Error('invalid document preparation');
+    }
+  }
+
+  globalThis.Parse = {
+    Error: class ParseError extends Error {},
+    Object: ParseObject,
+    Query,
+  };
+  t.after(() => {
+    globalThis.Parse = previousParse;
+  });
+
+  const createDocument = createCreateDocument({ deliverInitial: async () => {} });
+  const result = await createDocument({
+    params: { templateId: 'template-1', idempotencyKey: 'stable-key' },
+    headers: {},
+    user: actingUser,
+  });
+
+  assert.equal(result.status, 'error');
+  assert.equal(result.error, 'document_creation_rejected');
+  assert.equal(result.creationStarted, false);
+  assert.match(result.message, /invalid document preparation/);
+});
+
+test('createDocument keeps a save failure ambiguous after persistence starts', async t => {
+  const previousParse = globalThis.Parse;
+  const actingUser = { id: 'creator-1' };
+  const template = {
+    get: key => (key === 'CreatedBy' ? actingUser : undefined),
+    toJSON: () => ({ Name: 'Template', Placeholders: [] }),
+  };
+
+  class Query {
+    constructor(className) {
+      this.className = className;
+    }
+
+    equalTo() {
+      return this;
+    }
+
+    include() {
+      return this;
+    }
+
+    async first() {
+      return this.className === 'contracts_Template' ? template : null;
+    }
+  }
+
+  class ParseObject {
+    constructor() {
+      this.values = {};
+    }
+
+    set(key, value) {
+      this.values[key] = value;
+    }
+
+    async save() {
+      throw new Error('save response lost');
+    }
+  }
+
+  class ParseError extends Error {
+    constructor(code, message) {
+      super(message);
+      this.code = code;
+    }
+  }
+  ParseError.INTERNAL_SERVER_ERROR = 1;
+
+  globalThis.Parse = {
+    Error: ParseError,
+    Object: ParseObject,
+    Query,
+  };
+  t.after(() => {
+    globalThis.Parse = previousParse;
+  });
+
+  const createDocument = createCreateDocument({ deliverInitial: async () => {} });
+  await assert.rejects(
+    createDocument({
+      params: { templateId: 'template-1', idempotencyKey: 'stable-key' },
+      headers: {},
+      user: actingUser,
+    }),
+    /save response lost/
+  );
+});

@@ -92,6 +92,7 @@ async function createDocumentWithDelivery(request, deliverInitial) {
         }
     }
 
+    let documentSaveStarted = false;
     try {
         // 2. Prepare Document Data
         const doc = new Parse.Object('contracts_Document');
@@ -277,6 +278,11 @@ async function createDocumentWithDelivery(request, deliverInitial) {
         // 4. Save Document
         let savedDoc;
         try {
+            // From this point onwards a timeout or transport failure is
+            // ambiguous: Mongo may persist the document after the caller has
+            // stopped waiting. Never describe those failures as a definitive
+            // rejection.
+            documentSaveStarted = true;
             savedDoc = await doc.save(null, { useMasterKey: true });
         } catch (saveError) {
             if (normalizedIdempotencyKey) {
@@ -333,6 +339,14 @@ async function createDocumentWithDelivery(request, deliverInitial) {
 
     } catch (err) {
         console.error('Error in createDocument:', err);
+        if (normalizedIdempotencyKey && !documentSaveStarted) {
+            return {
+                status: 'error',
+                error: 'document_creation_rejected',
+                message: err.message,
+                creationStarted: false,
+            };
+        }
         throw new Parse.Error(Parse.Error.INTERNAL_SERVER_ERROR, 'Failed to create document: ' + err.message);
     }
 }
