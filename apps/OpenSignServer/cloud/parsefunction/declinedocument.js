@@ -72,17 +72,20 @@ export default async function declinedocument(request) {
         updateDoc.set('IsDeclined', true);
         updateDoc.set('DeclineReason', reason);
         updateDoc.set('DeclineBy', declineBy);
-        addDurableWebhookEvent(updateDoc, updateDoc.get('WebhookUrl'), {
+        const webhookEvent = addDurableWebhookEvent(updateDoc, updateDoc.get('WebhookUrl'), {
           event: 'declined',
           document_id: docId,
           user_id: userId,
+          idempotency_key: updateDoc.get('FivaIdempotencyKey') || undefined,
           reason,
           status: 'declined',
           timestamp: new Date().toISOString(),
         });
         await updateDoc.save(null, { useMasterKey: true });
         try {
-          await flushDocumentWebhookEvents(docId);
+          await flushDocumentWebhookEvents(docId, {
+            deliveryKey: webhookEvent?.DeliveryKey,
+          });
         } catch (error) {
           console.error('Declined webhook remains queued for durable retry:', error);
         }
@@ -95,17 +98,20 @@ export default async function declinedocument(request) {
         updateDoc.set('IsDeclined', true);
         updateDoc.set('DeclineReason', reason);
         updateDoc.set('DeclineBy', declineBy);
-        addDurableWebhookEvent(updateDoc, updateDoc.get('WebhookUrl'), {
+        const webhookEvent = addDurableWebhookEvent(updateDoc, updateDoc.get('WebhookUrl'), {
           event: 'declined',
           document_id: docId,
           user_id: userId,
+          idempotency_key: updateDoc.get('FivaIdempotencyKey') || undefined,
           reason,
           status: 'declined',
           timestamp: new Date().toISOString(),
         });
         await updateDoc.save(null, { useMasterKey: true });
         try {
-          await flushDocumentWebhookEvents(docId);
+          await flushDocumentWebhookEvents(docId, {
+            deliveryKey: webhookEvent?.DeliveryKey,
+          });
         } catch (error) {
           console.error('Declined webhook remains queued for durable retry:', error);
         }

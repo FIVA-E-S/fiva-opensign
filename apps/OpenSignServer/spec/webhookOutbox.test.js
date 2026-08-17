@@ -250,6 +250,7 @@ test('a crash before outbox reconciliation is recovered from the document marker
 
   await flushDocumentWebhookEvents('doc-2', {
     database,
+    deliveryKey: event.DeliveryKey,
     now: () => new Date('2026-08-13T10:01:00Z'),
     postWebhook: async (url, payload) => delivered.push({ url, payload }),
   });
@@ -257,4 +258,74 @@ test('a crash before outbox reconciliation is recovered from the document marker
   assert.equal(delivered.length, 1);
   assert.equal(delivered[0].payload.event, 'declined');
   assert.equal(database.collections.contracts_WebhookOutbox.rows[0].Status, 'delivered');
+});
+
+test('the document fast path only publishes the requested delivery key', async () => {
+  const current = new Date('2026-08-13T10:01:00Z');
+  const targetEvent = buildDurableWebhookEvent(
+    'https://back.example.test/webhook',
+    { event: 'completed', document_id: 'doc-target', signer_id: 'signer-1' },
+    { now: () => new Date('2026-08-13T10:00:00Z') }
+  );
+  const oldEvent = buildDurableWebhookEvent(
+    'https://back.example.test/webhook',
+    { event: 'completed', document_id: 'doc-old', signer_id: 'signer-2' },
+    { now: () => new Date('2026-08-13T09:00:00Z') }
+  );
+  const database = createDatabase({
+    documents: [{ _id: 'doc-target', FivaWebhookEvents: [targetEvent] }],
+    outbox: [
+      {
+        _id: 'old-outbox',
+        ...oldEvent,
+        Attempts: 0,
+        NextAttemptAt: current,
+      },
+    ],
+  });
+  const delivered = [];
+
+  await flushDocumentWebhookEvents('doc-target', {
+    database,
+    deliveryKey: targetEvent.DeliveryKey,
+    now: () => current,
+    postWebhook: async (url, payload) => delivered.push({ url, payload }),
+  });
+
+  assert.deepEqual(
+    delivered.map(item => item.payload.document_id),
+    ['doc-target']
+  );
+  const oldEntry = database.collections.contracts_WebhookOutbox.rows.find(
+    entry => entry.DeliveryKey === oldEvent.DeliveryKey
+  );
+  const targetEntry = database.collections.contracts_WebhookOutbox.rows.find(
+    entry => entry.DeliveryKey === targetEvent.DeliveryKey
+  );
+  assert.equal(oldEntry.Status, 'pending');
+  assert.equal(targetEntry.Status, 'delivered');
+});
+
+test('a fast path without a delivery key only reconciles for the worker', async () => {
+  const event = buildDurableWebhookEvent(
+    'https://back.example.test/webhook',
+    { event: 'viewed', document_id: 'doc-reconcile', contact_id: 'contact-1' },
+    { now: () => new Date('2026-08-13T10:00:00Z') }
+  );
+  const database = createDatabase({
+    documents: [{ _id: 'doc-reconcile', FivaWebhookEvents: [event] }],
+  });
+  let posts = 0;
+
+  const processed = await flushDocumentWebhookEvents('doc-reconcile', {
+    database,
+    now: () => new Date('2026-08-13T10:01:00Z'),
+    postWebhook: async () => {
+      posts += 1;
+    },
+  });
+
+  assert.equal(processed, 0);
+  assert.equal(posts, 0);
+  assert.equal(database.collections.contracts_WebhookOutbox.rows[0].Status, 'pending');
 });

@@ -79,9 +79,12 @@ async function upsertOutboxEntry(outbox, event, now) {
   );
 }
 
-export async function reconcileDocumentWebhookEvents(
-  { database, documentId, limit = DEFAULT_BATCH_SIZE, now = () => new Date() } = {}
-) {
+export async function reconcileDocumentWebhookEvents({
+  database,
+  documentId,
+  limit = DEFAULT_BATCH_SIZE,
+  now = () => new Date(),
+} = {}) {
   const { documents, outbox } = await collections(database);
   const filter = { [`${DOCUMENT_EVENTS_FIELD}.Status`]: 'pending' };
   if (documentId) filter._id = documentId;
@@ -109,9 +112,7 @@ export async function reconcileDocumentWebhookEvents(
           },
         },
         {
-          arrayFilters: [
-            { 'event.DeliveryKey': event.DeliveryKey, 'event.Status': 'pending' },
-          ],
+          arrayFilters: [{ 'event.DeliveryKey': event.DeliveryKey, 'event.Status': 'pending' }],
         }
       );
       reconciled += 1;
@@ -137,21 +138,23 @@ export async function enqueueWebhookDelivery(
 
 export async function claimNextWebhookOutboxEntry(
   outbox,
-  { now = () => new Date(), createOwnerToken = crypto.randomUUID } = {}
+  { now = () => new Date(), createOwnerToken = crypto.randomUUID, deliveryKey } = {}
 ) {
   const currentTime = now();
   const leaseOwner = createOwnerToken();
   const leaseUntil = new Date(currentTime.getTime() + DELIVERY_LEASE_MS);
+  const filter = {
+    $or: [
+      {
+        Status: { $in: ['pending', 'failed'] },
+        NextAttemptAt: { $lte: currentTime },
+      },
+      { Status: 'delivering', LeaseUntil: { $lte: currentTime } },
+    ],
+  };
+  if (deliveryKey) filter.DeliveryKey = deliveryKey;
   const result = await outbox.findOneAndUpdate(
-    {
-      $or: [
-        {
-          Status: { $in: ['pending', 'failed'] },
-          NextAttemptAt: { $lte: currentTime },
-        },
-        { Status: 'delivering', LeaseUntil: { $lte: currentTime } },
-      ],
-    },
+    filter,
     {
       $set: {
         Status: 'delivering',
@@ -208,21 +211,25 @@ export async function deliverClaimedWebhookEntry(
   }
 }
 
-export async function processWebhookOutboxBatch(
-  {
-    database,
-    postWebhook = postSignedWebhook,
-    now = () => new Date(),
-    limit = DEFAULT_BATCH_SIZE,
-    createOwnerToken = crypto.randomUUID,
-  } = {}
-) {
+export async function processWebhookOutboxBatch({
+  database,
+  postWebhook = postSignedWebhook,
+  now = () => new Date(),
+  limit = DEFAULT_BATCH_SIZE,
+  createOwnerToken = crypto.randomUUID,
+  deliveryKey,
+} = {}) {
   const { outbox } = await collections(database);
   let processed = 0;
-  while (processed < limit) {
+  const effectiveLimit = deliveryKey ? 1 : limit;
+  while (processed < effectiveLimit) {
     // Atomic findOneAndUpdate is the only way a worker acquires a lease.
     // eslint-disable-next-line no-await-in-loop
-    const claim = await claimNextWebhookOutboxEntry(outbox, { now, createOwnerToken });
+    const claim = await claimNextWebhookOutboxEntry(outbox, {
+      now,
+      createOwnerToken,
+      deliveryKey,
+    });
     if (!claim) break;
     // eslint-disable-next-line no-await-in-loop
     await deliverClaimedWebhookEntry(outbox, claim, { postWebhook, now });
@@ -232,8 +239,10 @@ export async function processWebhookOutboxBatch(
 }
 
 export async function flushDocumentWebhookEvents(documentId, options = {}) {
-  await reconcileDocumentWebhookEvents({ ...options, documentId });
-  return processWebhookOutboxBatch(options);
+  const { deliveryKey, ...workerOptions } = options;
+  await reconcileDocumentWebhookEvents({ ...workerOptions, documentId });
+  if (!deliveryKey) return 0;
+  return processWebhookOutboxBatch({ ...workerOptions, deliveryKey, limit: 1 });
 }
 
 export function startWebhookOutboxWorker({ intervalMs = DEFAULT_INTERVAL_MS } = {}) {

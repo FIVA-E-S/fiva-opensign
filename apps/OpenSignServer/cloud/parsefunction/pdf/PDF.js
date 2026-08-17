@@ -19,6 +19,7 @@ import { buildDownloadFilename, parseUploadFile } from '../../../utils/fileUtils
 import {
   durableWebhookEventRestOperation,
   flushDocumentWebhookEvents,
+  webhookDeliveryKey,
 } from '../webhookOutbox.js';
 
 const serverUrl = cloudServerUrl; // process.env.SERVER_URL;
@@ -119,13 +120,15 @@ async function updateDoc(
       body.DocumentHash = documentHash;
     }
     const eventType = isCompleted ? 'completed' : 'signed';
-    const eventOperation = durableWebhookEventRestOperation(webhookUrl, {
+    const webhookPayload = {
       event: eventType,
       document_id: docId,
       signer_id: userId,
+      idempotency_key: data.FivaIdempotencyKey || undefined,
       status: eventType,
       timestamp: signedOn.toISOString(),
-    });
+    };
+    const eventOperation = durableWebhookEventRestOperation(webhookUrl, webhookPayload);
     if (eventOperation) body.FivaWebhookEvents = eventOperation;
     await axios.put(`${docUrl}/${docId}`, body, { headers });
     return {
@@ -133,6 +136,7 @@ async function updateDoc(
       message: 'success',
       AuditTrail: updateAuditTrail,
       DocumentHash: documentHash && isCompleted ? documentHash : undefined,
+      webhookDeliveryKey: eventOperation ? webhookDeliveryKey(webhookPayload) : undefined,
     };
   } catch (err) {
     console.log('update doc err ', err);
@@ -509,7 +513,9 @@ async function PDF(req) {
         // The pending callback was persisted atomically with AuditTrail/IsCompleted.
         // A best-effort flush reduces latency; the worker recovers it after a crash.
         try {
-          await flushDocumentWebhookEvents(docId);
+          await flushDocumentWebhookEvents(docId, {
+            deliveryKey: updatedDoc.webhookDeliveryKey,
+          });
         } catch (e) {
           console.error('Webhook remains queued for durable retry:', e);
         }
