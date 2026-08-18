@@ -7,8 +7,10 @@ WORKDIR /usr/src/app
 # Copy package.json and package-lock.json first to leverage Docker cache
 COPY apps/OpenSign/package*.json ./
 
-# Install application dependencies
-RUN npm install
+# Install the exact dependency graph committed for the client. Parse uses the
+# browser-compatible `events` package at runtime, so dependency drift can turn
+# its EventEmitter into Vite's browser-external stub and blank the signing UI.
+RUN npm ci --no-audit --no-fund
 
 # Copy the current directory contents into the container
 COPY apps/OpenSign/ .

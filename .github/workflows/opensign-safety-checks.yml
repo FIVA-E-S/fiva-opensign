@@ -29,6 +29,7 @@ on:
       - "apps/OpenSignServer/spec/signedWebhook.test.js"
       - "apps/OpenSignServer/spec/webhookOutbox.test.js"
       - "apps/OpenSignServer/spec/documentBeforeSave.test.js"
+      - "apps/OpenSign/**"
       - ".github/workflows/opensign-safety-checks.yml"
 
 permissions:
@@ -75,3 +76,40 @@ jobs:
           spec/signedWebhook.test.js
           spec/webhookOutbox.test.js
           spec/documentBeforeSave.test.js
+
+  opensign-client:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/OpenSign
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/OpenSign/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test -- --passWithNoTests
+      - run: npm run build
+      - name: Smoke-test the built client in Chrome
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx serve -s build -l 4173 > /tmp/opensign-client-serve.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/ > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+
+          google-chrome --headless=new --no-sandbox --disable-gpu \
+            --virtual-time-budget=10000 \
+            --dump-dom http://127.0.0.1:4173/ \
+            > /tmp/opensign-client-dom.html
+
+          grep -Eq '<div id="root"[^>]*>[[:space:]]*<' /tmp/opensign-client-dom.html
