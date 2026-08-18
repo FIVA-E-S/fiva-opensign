@@ -12,8 +12,14 @@ WORKDIR /usr/src/app
 # Copy package.json and package-lock.json first to leverage Docker cache
 COPY apps/OpenSignServer/package*.json ./
 
-# Install application dependencies
-RUN npm install
+# Install the exact dependency graph committed for the server image. Using
+# `npm install` without a lockfile allowed a newer @parse/push-adapter release
+# to enter production and fail at startup against Parse 7.
+RUN npm ci --no-audit --no-fund
+
+# Fail the image build before it reaches AKS if the Parse runtime dependency
+# graph cannot be imported by the selected Node version.
+RUN npm run check:runtime-dependencies
 
 # If you have native dependencies, you'll need extra tools. Uncomment the following line if needed.
 # RUN apk add --no-cache make gcc g++ python3

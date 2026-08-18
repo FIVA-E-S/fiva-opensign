@@ -18,6 +18,11 @@ on:
       - "apps/OpenSignServer/index.js"
       - "apps/OpenSignServer/migrationdb/createOpenSignSafetyIndexes.js"
       - "apps/OpenSignServer/migrationdb/index.js"
+      - "apps/OpenSignServer/package.json"
+      - "apps/OpenSignServer/package-lock.json"
+      - "apps/OpenSignServer/Dockerhubfile"
+      - ".dockerignore"
+      - ".github/workflows/build-and-push.yml"
       - "apps/OpenSignServer/eslint.safety.config.js"
       - "apps/OpenSignServer/spec/remindDocument.helpers.test.js"
       - "apps/OpenSignServer/spec/createDocument.test.js"
@@ -40,7 +45,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install --no-audit --no-fund --package-lock=false
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check:runtime-dependencies
       - run: >-
           npx eslint --config ./eslint.safety.config.js
           ./cloud/parsefunction/remindDocument.helpers.js
