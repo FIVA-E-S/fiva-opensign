@@ -107,6 +107,18 @@ jobs:
           resource-group: ${{ secrets.AKS_RESOURCE_GROUP }}
           cluster-name:  ${{ secrets.AKS_CLUSTER_NAME }}
 
+      - name: Configure signed webhook secret
+        env:
+          OPENSIGN_WEBHOOK_SECRET: ${{ secrets.OPENSIGN_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$OPENSIGN_WEBHOOK_SECRET"
+          kubectl -n $NAMESPACE create secret generic opensign-webhook-secret \
+            --from-literal=OPENSIGN_WEBHOOK_SECRET="$OPENSIGN_WEBHOOK_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n $NAMESPACE set env deployment/$SERVER_DEPLOYMENT \
+            --from=secret/opensign-webhook-secret
+
       - name: Update images to new tag
         run: |
           set -euo pipefail

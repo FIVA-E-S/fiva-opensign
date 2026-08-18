@@ -215,12 +215,15 @@ app.use('/public', express.static(path.join(__dirname, '/public')));
 if (!process.env.TESTING) {
   const mountPath = process.env.PARSE_MOUNT || '/app';
   try {
+    // Safety indexes must exist before cloud functions and background workers
+    // can create idempotency/outbox rows.
+    await runDbMigrations();
     const server = new ParseServer(config);
     await server.start();
     app.use(mountPath, server.app);
   } catch (err) {
-    console.log(err);
-    process.exit();
+    console.error('OpenSign startup failed:', err);
+    process.exit(1);
   }
 }
 // Mount your custom express app
@@ -241,7 +244,6 @@ if (!process.env.TESTING) {
     console.log('opensign-server running on port ' + port + '.');
     const isWindows = process.platform === 'win32';
     // console.log('isWindows', isWindows);
-    runDbMigrations();
     const migrate = isWindows
       ? `set APPLICATION_ID=${serverAppId}&& set SERVER_URL=${cloudServerUrl}&& set MASTER_KEY=${process.env.MASTER_KEY}&& npx parse-dbtool migrate`
       : `APPLICATION_ID=${serverAppId} SERVER_URL=${cloudServerUrl} MASTER_KEY=${process.env.MASTER_KEY} npx parse-dbtool migrate`;

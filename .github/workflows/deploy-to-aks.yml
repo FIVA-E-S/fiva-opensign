@@ -39,6 +39,17 @@ jobs:
       - name: Get AKS credentials
         run: az aks get-credentials -g $RG -n $AKS --overwrite-existing
 
+      - name: Configure signed webhook secret
+        env:
+          OPENSIGN_WEBHOOK_SECRET: ${{ secrets.OPENSIGN_WEBHOOK_SECRET }}
+        run: |
+          test -n "$OPENSIGN_WEBHOOK_SECRET"
+          kubectl -n $NAMESPACE create secret generic opensign-webhook-secret \
+            --from-literal=OPENSIGN_WEBHOOK_SECRET="$OPENSIGN_WEBHOOK_SECRET" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl -n $NAMESPACE set env deploy/$SERVER_DEPLOY \
+            --from=secret/opensign-webhook-secret
+
       - name: Deploy images
         run: |
           SHA="${{ inputs.image_sha }}"

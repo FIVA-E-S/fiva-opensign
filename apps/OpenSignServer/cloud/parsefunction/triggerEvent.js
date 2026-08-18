@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { cloudServerUrl, serverAppId } from '../../Utils.js';
+import { addDurableWebhookEvent, flushDocumentWebhookEvents } from './webhookOutbox.js';
 
 export default async function triggerEvent(request) {
   const event = request.params.event;
@@ -10,7 +11,14 @@ export default async function triggerEvent(request) {
   const appId = serverAppId;
   try {
     const docQuery = new Parse.Query('contracts_Document');
-    docQuery.select(['Name', 'IsEnableOTP', 'SignedUrl', 'AuditTrail', 'WebhookUrl']);
+    docQuery.select([
+      'Name',
+      'IsEnableOTP',
+      'SignedUrl',
+      'AuditTrail',
+      'WebhookUrl',
+      'FivaIdempotencyKey',
+    ]);
     const docRes = await docQuery.get(docId, { useMasterKey: true });
     const _docRes = docRes && docRes?.toJSON();
     const isEnableOTP = docRes?.get('IsEnableOTP') || false;
@@ -52,22 +60,22 @@ export default async function triggerEvent(request) {
         const updateDoc = new Parse.Object('contracts_Document');
         updateDoc.id = docRes.id;
         updateDoc.set('AuditTrail', [...auditTrail, newEntry]);
+        const webhookEvent = addDurableWebhookEvent(updateDoc, docRes.get('WebhookUrl'), {
+          event: 'viewed',
+          document_id: docId,
+          contact_id: contactId,
+          idempotency_key: docRes.get('FivaIdempotencyKey') || undefined,
+          status: 'viewed',
+          timestamp: date,
+        });
         await updateDoc.save(null, { useMasterKey: true });
-        
-        // Trigger Webhook (Viewed)
-        const webhookUrl = docRes.get('WebhookUrl');
-        if (webhookUrl) {
-            try {
-                await axios.post(webhookUrl, {
-                    event: 'viewed',
-                    document_id: docId,
-                    contact_id: contactId,
-                    status: 'viewed',
-                    timestamp: date
-                });
-            } catch (e) {
-                console.error("Error sending webhook (viewed):", e);
-            }
+
+        try {
+          await flushDocumentWebhookEvents(docId, {
+            deliveryKey: webhookEvent?.DeliveryKey,
+          });
+        } catch (e) {
+          console.error('Viewed webhook remains queued for durable retry:', e);
         }
       }
     }

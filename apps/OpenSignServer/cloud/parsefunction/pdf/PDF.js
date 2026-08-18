@@ -16,6 +16,11 @@ import { Placeholder } from './Placeholder.js';
 import { SignPdf } from '@signpdf/signpdf';
 import { P12Signer } from '@signpdf/signer-p12';
 import { buildDownloadFilename, parseUploadFile } from '../../../utils/fileUtils.js';
+import {
+  durableWebhookEventRestOperation,
+  flushDocumentWebhookEvents,
+  webhookDeliveryKey,
+} from '../webhookOutbox.js';
 
 const serverUrl = cloudServerUrl; // process.env.SERVER_URL;
 const APPID = serverAppId;
@@ -61,15 +66,26 @@ async function uploadFile(pdfName, filepath) {
 }
 
 // `updateDoc` is used to update signedUrl, AuditTrail, Iscompleted in document
-async function updateDoc(docId, url, userId, ipAddress, data, className, sign, documentHash) {
+async function updateDoc(
+  docId,
+  url,
+  userId,
+  ipAddress,
+  data,
+  className,
+  sign,
+  documentHash,
+  webhookUrl
+) {
   try {
+    const signedOn = new Date();
     const UserPtr = { __type: 'Pointer', className: className, objectId: userId };
     const obj = {
       UserPtr: UserPtr,
       SignedUrl: url,
       Activity: 'Signed',
       ipAddress: ipAddress,
-      SignedOn: new Date(),
+      SignedOn: signedOn,
       Signature: sign,
     };
     let updateAuditTrail;
@@ -103,16 +119,28 @@ async function updateDoc(docId, url, userId, ipAddress, data, className, sign, d
     if (documentHash && isCompleted) {
       body.DocumentHash = documentHash;
     }
-    const signedRes = await axios.put(`${docUrl}/${docId}`, body, { headers });
+    const eventType = isCompleted ? 'completed' : 'signed';
+    const webhookPayload = {
+      event: eventType,
+      document_id: docId,
+      signer_id: userId,
+      idempotency_key: data.FivaIdempotencyKey || undefined,
+      status: eventType,
+      timestamp: signedOn.toISOString(),
+    };
+    const eventOperation = durableWebhookEventRestOperation(webhookUrl, webhookPayload);
+    if (eventOperation) body.FivaWebhookEvents = eventOperation;
+    await axios.put(`${docUrl}/${docId}`, body, { headers });
     return {
       isCompleted: isCompleted,
       message: 'success',
       AuditTrail: updateAuditTrail,
       DocumentHash: documentHash && isCompleted ? documentHash : undefined,
+      webhookDeliveryKey: eventOperation ? webhookDeliveryKey(webhookPayload) : undefined,
     };
   } catch (err) {
     console.log('update doc err ', err);
-    return 'err';
+    throw err;
   }
 }
 
@@ -475,27 +503,21 @@ async function PDF(req) {
           _resDoc, // auditTrail, signers, etc data
           className, // className based on flow
           sign, // sign base64
-          isCompleted ? documentHash : undefined
+          isCompleted ? documentHash : undefined,
+          resDoc.get('WebhookUrl')
         );
 
         _resDoc.SignedUrl = data.imageUrl;
         await sendMailsaveCertifcate(_resDoc, pfx, isCustomMail, mailProvider, `signed_${name}`);
 
-        // Trigger Webhook (Signed/Completed)
-        const webhookUrl = resDoc.get('WebhookUrl');
-        if (webhookUrl) {
-          try {
-            const eventType = isCompleted ? 'completed' : 'signed';
-            await axios.post(webhookUrl, {
-              event: eventType,
-              document_id: docId,
-              signer_id: signUser.objectId,
-              status: eventType,
-              timestamp: new Date().toISOString()
-            });
-          } catch (e) {
-            console.error("Error sending webhook (signed):", e);
-          }
+        // The pending callback was persisted atomically with AuditTrail/IsCompleted.
+        // A best-effort flush reduces latency; the worker recovers it after a crash.
+        try {
+          await flushDocumentWebhookEvents(docId, {
+            deliveryKey: updatedDoc.webhookDeliveryKey,
+          });
+        } catch (e) {
+          console.error('Webhook remains queued for durable retry:', e);
         }
 
         // below code is used to remove exported signed pdf file from exports folder

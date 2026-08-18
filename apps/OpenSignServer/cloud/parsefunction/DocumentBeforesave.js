@@ -1,6 +1,13 @@
 import { MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../Utils.js';
 
 async function DocumentBeforesave(request) {
+  if (request.original && !request.master && request.object?.dirty?.('FivaIdempotencyKey')) {
+    throw new Parse.Error(
+      Parse.Error.OPERATION_FORBIDDEN,
+      'FivaIdempotencyKey is managed by the server'
+    );
+  }
+
   if (!request.original) {
     const validations = [
       { field: 'Name', max: MAX_NAME_LENGTH },
