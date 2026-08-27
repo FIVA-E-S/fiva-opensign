@@ -9,7 +9,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
     permissions:
       contents: read
       id-token: write

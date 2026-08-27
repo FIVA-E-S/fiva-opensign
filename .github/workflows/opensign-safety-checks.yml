@@ -37,7 +37,7 @@ permissions:
 
 jobs:
   opensign-safety:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
     defaults:
       run:
         working-directory: apps/OpenSignServer
@@ -78,7 +78,7 @@ jobs:
           spec/documentBeforeSave.test.js
 
   opensign-client:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
     defaults:
       run:
         working-directory: apps/OpenSign

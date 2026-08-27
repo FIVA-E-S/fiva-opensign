@@ -7,7 +7,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
     permissions:
       contents: read
       id-token: write
@@ -75,7 +75,7 @@ jobs:
           docker push $ACR_LOGIN_SERVER/$CLIENT_IMAGE:${{ github.sha }}
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
     needs: build
     permissions:
       contents: read
