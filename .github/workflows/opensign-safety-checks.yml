@@ -6,6 +6,8 @@ on:
       - "apps/OpenSignServer/cloud/parsefunction/pdf/PDF.js"
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.helpers.js"
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.js"
+      - "apps/OpenSignServer/cloud/parsefunction/signatureMailHeaders.js"
+      - "apps/OpenSignServer/cloud/parsefunction/sendMailv3.js"
       - "apps/OpenSignServer/cloud/parsefunction/reminderDelivery.js"
       - "apps/OpenSignServer/cloud/parsefunction/durableMongo.js"
       - "apps/OpenSignServer/cloud/parsefunction/signedWebhook.js"
@@ -52,6 +54,7 @@ jobs:
           npx eslint --config ./eslint.safety.config.js
           ./cloud/parsefunction/remindDocument.helpers.js
           ./cloud/parsefunction/remindDocument.js
+          ./cloud/parsefunction/signatureMailHeaders.js
           ./cloud/parsefunction/reminderDelivery.js
           ./cloud/parsefunction/durableMongo.js
           ./cloud/parsefunction/signedWebhook.js

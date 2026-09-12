@@ -1,6 +1,13 @@
 import { MAX_DESCRIPTION_LENGTH, MAX_NAME_LENGTH, MAX_NOTE_LENGTH } from '../../Utils.js';
 
 async function DocumentBeforesave(request) {
+  if (!request.master && request.object?.dirty?.('FivaSenderName')) {
+    throw new Parse.Error(
+      Parse.Error.OPERATION_FORBIDDEN,
+      'FivaSenderName is managed by the server'
+    );
+  }
+
   if (request.original && !request.master && request.object?.dirty?.('FivaIdempotencyKey')) {
     throw new Parse.Error(
       Parse.Error.OPERATION_FORBIDDEN,

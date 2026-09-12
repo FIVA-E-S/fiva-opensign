@@ -1,3 +1,7 @@
+export function normalizeSenderName(value) {
+  return typeof value === 'string' ? value.replace(/[\r\n]+/g, ' ').trim().slice(0, 128) : '';
+}
+
 export function normalizePublicUrl(value) {
   if (!value) {
     throw new Error('Missing public URL');

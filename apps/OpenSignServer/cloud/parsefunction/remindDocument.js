@@ -5,6 +5,7 @@ import {
   buildSigningUrl,
   isSignerAlreadySigned,
   normalizePublicUrl,
+  normalizeSenderName,
 } from './remindDocument.helpers.js';
 import {
   markReminderDelivered,
@@ -97,6 +98,7 @@ export function createRemindDocument({
     const extUserData = extUser?.toJSON?.() || {};
     const tenantData = extUserData?.TenantId || {};
     const senderName =
+      normalizeSenderName(document.get('FivaSenderName')) ||
       process.env.SMTP_FROM_NAME || actingUser.get('Name') || actingUser.get('username') || appName;
     const senderEmail = actingUser.get('Email') || actingUser.get('email') || '';
     const usableExpiry = await ensureUsableExpiry(document, now());
@@ -201,6 +203,7 @@ export function createRemindDocument({
             recipient: signer.email,
             subject,
             from: senderName,
+            disableClickTracking: true,
             replyto: senderEmail,
             html,
             extUserId: extUser?.id || actingUser.id,

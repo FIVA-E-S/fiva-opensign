@@ -3,6 +3,47 @@ import test from 'node:test';
 
 import { createCreateDocument } from '../cloud/parsefunction/createDocument.js';
 
+for (const master of [true, false]) {
+  test(`createDocument persists the sender brand only for trusted calls: master=${master}`, async t => {
+    const previousParse = globalThis.Parse;
+    const creator = { id: 'creator-1' };
+    const template = {
+      get: key => (key === 'CreatedBy' ? creator : undefined),
+      toJSON: () => ({ Name: 'Annexes', Placeholders: [] }),
+    };
+    class Query {
+      equalTo() { return this; }
+      include() { return this; }
+      async first() { return template; }
+    }
+    class ParseObject {
+      constructor() {
+        this.id = 'new-document';
+        this.values = {};
+      }
+      get(key) { return this.values[key]; }
+      set(key, value) { this.values[key] = value; }
+      toJSON() { return { objectId: this.id, ...this.values }; }
+      async save() { return this; }
+    }
+    globalThis.Parse = { Query, Object: ParseObject, Error };
+    t.after(() => { globalThis.Parse = previousParse; });
+    const deliveries = [];
+    const create = createCreateDocument({
+      deliverInitial: async document => { deliveries.push(document.get('FivaSenderName')); },
+    });
+    const result = await create({
+      master,
+      user: creator,
+      headers: {},
+      params: { templateId: 'template-1', senderName: ' Faraday\r\n ' },
+    });
+    assert.equal(result.status, 'success');
+    assert.equal(result.data.FivaSenderName, master ? 'Faraday' : undefined);
+    assert.deepEqual(deliveries, [master ? 'Faraday' : undefined]);
+  });
+}
+
 test('createDocument returns the existing document for the same idempotency key', async t => {
   const previousParse = globalThis.Parse;
   const queryFilters = [];
