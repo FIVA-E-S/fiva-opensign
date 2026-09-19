@@ -6,6 +6,7 @@ import { appInfo } from "./appinfo";
 import { saveAs } from "file-saver";
 import printModule from "print-js";
 import fontkit from "@pdf-lib/fontkit";
+import documentFontUrl from "../assets/fonts/times.ttf?url";
 import { themeColor } from "./const";
 import { format, toZonedTime } from "date-fns-tz";
 import i18n from "../i18n";
@@ -1314,9 +1315,7 @@ export const addInitialData = (signerPos, setXyPosition, value, userId) => {
 export const embedDocId = async (pdfOriginalWH, pdfDoc, documentId) => {
   const appName = "OpenSign™";
   // `fontBytes` is used to embed custom font in pdf
-  const fontBytes = await fileasbytes(
-    "https://cdn.opensignlabs.com/webfonts/times.ttf"
-  );
+  const fontBytes = await fileasbytes(documentFontUrl);
   pdfDoc.registerFontkit(fontkit);
   const font = await pdfDoc.embedFont(fontBytes, { subset: true });
   //pdfOriginalWH contained all pdf's pages width and height
@@ -1807,9 +1806,7 @@ export const embedWidgetsToDoc = async (
   prefillImg
 ) => {
   // `fontBytes` is used to embed custom font in pdf
-  const fontBytes = await fileasbytes(
-    "https://cdn.opensignlabs.com/webfonts/times.ttf"
-  );
+  const fontBytes = await fileasbytes(documentFontUrl);
   pdfDoc.registerFontkit(fontkit);
   const font = await pdfDoc.embedFont(fontBytes, { subset: true });
   let hasError = false;

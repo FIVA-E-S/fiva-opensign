@@ -94,6 +94,7 @@ jobs:
           cache-dependency-path: apps/OpenSign/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm test -- --passWithNoTests
+      - run: node scripts/check-signing-assets.cjs
       - run: npm run build
       - name: Smoke-test the built client in Chrome
         shell: bash
