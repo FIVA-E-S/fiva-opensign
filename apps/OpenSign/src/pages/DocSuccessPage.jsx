@@ -21,6 +21,29 @@ const DocSuccessPage = () => {
   const [pdfDetails, setPdfDetails] = useState([]);
   const [pdfBase64Url, setPdfBase64Url] = useState("");
   const [showConfetti, setShowConfetti] = useState(true); // State to control confetti
+  const [redirectTimeLeft, setRedirectTimeLeft] = useState(3);
+  let redirectUrl = "";
+  try {
+    const target = new URL(pdfDetails?.[0]?.RedirectUrl);
+    if (["http:", "https:"].includes(target.protocol) && !target.username && !target.password) {
+      redirectUrl = target.href;
+    }
+  } catch {
+    // Missing or invalid destinations must not break the success screen.
+  }
+
+  useEffect(() => {
+    if (!signed || sent || !redirectUrl) return;
+    setRedirectTimeLeft(3);
+    const countdown = window.setInterval(() => {
+      setRedirectTimeLeft((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    const redirect = window.setTimeout(() => window.location.assign(redirectUrl), 3000);
+    return () => {
+      window.clearInterval(countdown);
+      window.clearTimeout(redirect);
+    };
+  }, [signed, sent, redirectUrl]);
 
   useEffect(() => {
     initialsetup();
@@ -36,7 +59,7 @@ const DocSuccessPage = () => {
       const docId = urlParams.get("docid");
       const docUrl = urlParams.get("docurl");
       const certificate = urlParams.get("certificate");
-      const completed = urlParams?.get("completed") || false;
+      const completed = urlParams.get("completed") === "true";
       const redirectUrl = urlParams.get("redirect_url");
       const details = {
         objectId: docId,
@@ -46,9 +69,13 @@ const DocSuccessPage = () => {
         RedirectUrl: redirectUrl,
       };
       setPdfDetails([details]);
-      const base64Pdf = await getBase64FromUrl(docUrl);
-      if (base64Pdf) {
-        setPdfBase64Url(base64Pdf);
+      if (docUrl) {
+        try {
+          const base64Pdf = await getBase64FromUrl(docUrl);
+          if (base64Pdf) setPdfBase64Url(base64Pdf);
+        } catch {
+          // Download failures must not block returning to the CRM.
+        }
       }
     }
   };
@@ -138,10 +165,10 @@ const DocSuccessPage = () => {
               <p className="mt-4 md:mt-6 text-xs md:text-sm text-gray-500">
                 {t("you-will-receive-email-shortly")}
               </p>
-              <p className="mt-2 text-xs md:text-sm text-gray-500">
+              {!redirectUrl && <p className="mt-2 text-xs md:text-sm text-gray-500">
                 Puedes cerrar esta ventana.
-              </p>
-              {pdfDetails?.[0]?.RedirectUrl && (
+              </p>}
+              {redirectUrl && (
                 <div className="mt-4">
                   <p className="text-sm text-gray-600">
                     Redirigiendo en {redirectTimeLeft} segundos...
@@ -149,7 +176,7 @@ const DocSuccessPage = () => {
                   <p className="text-xs text-gray-500 mt-1">
                     Si no es redirigido,{" "}
                     <a
-                      href={pdfDetails?.[0]?.RedirectUrl}
+                      href={redirectUrl}
                       className="text-blue-600 hover:underline"
                     >
                       haga clic aquí
