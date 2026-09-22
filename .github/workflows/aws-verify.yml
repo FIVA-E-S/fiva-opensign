@@ -13,11 +13,11 @@ env:
 jobs:
   verify:
     if: github.ref == 'refs/heads/main'
-    runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: aws-source
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -40,15 +40,13 @@ jobs:
           role-session-name: gh-${{ github.run_id }}
           role-duration-seconds: 14400
           unset-current-credentials: true
-      - name: Connect to the production EKS cluster
-        run: bash scripts/aws/setup-context.sh
-      - name: Verify ECR images and EKS permissions without changing production
-        run: bash scripts/aws/verify.sh
       - name: Log in to ECR
         run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Verify image publication without deploying it
         run: bash scripts/aws/verify-publication.sh
+      - name: Verify private EKS access from the isolated AWS task
+        run: bash scripts/aws/run-codebuild.sh verify
       - name: Clean isolated runner credentials
         if: always()
         working-directory: ${{ github.workspace }}
