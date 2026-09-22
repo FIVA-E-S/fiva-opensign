@@ -1,21 +1,9 @@
-name: Build and deploy OpenSign to AWS
+name: Verify AWS deployment access
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      operation:
-        description: Verify AWS access without a rollout, or build and deploy main
-        type: choice
-        default: verify
-        options: [verify, deploy]
 permissions:
   contents: read
   id-token: write
-
-concurrency:
-  group: opensign-aws-production
-  cancel-in-progress: false
 env:
   AWS_REGION: ${{ vars.AWS_REGION }}
   AWS_CLUSTER_NAME: ${{ vars.AWS_CLUSTER_NAME }}
@@ -23,10 +11,10 @@ env:
   AWS_EC2_METADATA_DISABLED: 'true'
 
 jobs:
-  deploy:
+  verify:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
-    timeout-minutes: 90
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Prepare isolated runner tools and Docker credentials
@@ -56,27 +44,7 @@ jobs:
         run: aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Verify image publication without deploying it
-        if: inputs.operation == 'verify'
         run: bash scripts/aws/verify-publication.sh
-      - name: Build and publish server
-        if: github.event_name == 'push' || inputs.operation == 'deploy'
-        id: server
-        run: bash scripts/aws/build-image.sh fiva/fiva-opensign-server apps/OpenSignServer/Dockerhubfile . "$GITHUB_SHA"
-      - name: Build and publish client
-        if: github.event_name == 'push' || inputs.operation == 'deploy'
-        id: client
-        run: bash scripts/aws/build-image.sh fiva/fiva-opensign-client apps/OpenSign/Dockerhubfile . "$GITHUB_SHA"
-      - name: Deploy both images preserving storage and webhook secrets
-        if: github.event_name == 'push' || inputs.operation == 'deploy'
-        env:
-          SERVER_IMAGE: ${{ steps.server.outputs.image }}
-          CLIENT_IMAGE: ${{ steps.client.outputs.image }}
-        run: |
-          bash scripts/aws/patch-image.sh opensign opensign-server server "$SERVER_IMAGE"
-          bash scripts/aws/patch-image.sh opensign opensign-client client "$CLIENT_IMAGE"
-          kubectl -n opensign rollout status deployment/opensign-server --timeout=10m
-          kubectl -n opensign rollout status deployment/opensign-client --timeout=10m
-          kubectl -n opensign exec deployment/opensign-server -- node --input-type=module -e             "const r = await fetch('http://127.0.0.1:8080/app/health'); if (!r.ok) process.exit(1)"
       - name: Clean isolated runner credentials
         if: always()
         run: bash scripts/aws/cleanup.sh
