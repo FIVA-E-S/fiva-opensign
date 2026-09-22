@@ -14,16 +14,20 @@ jobs:
   verify:
     if: github.ref == 'refs/heads/main'
     runs-on: ${{ vars.FIVA_ACTIONS_RUNNER }}
+    defaults:
+      run:
+        working-directory: aws-source
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: aws-source
+          persist-credentials: false
       - name: Prepare isolated runner tools and Docker credentials
         shell: bash
         run: |
           set -euo pipefail
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-          export PATH="$HOME/.local/bin:$PATH"
-          for tool in aws docker jq curl; do command -v "$tool"; done
+          bash scripts/aws/bootstrap-tools.sh
           docker_config=$(mktemp -d "${RUNNER_TEMP}/fiva-docker-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")
           chmod 700 "$docker_config"
           printf 'DOCKER_CONFIG=%s\n' "$docker_config" >> "$GITHUB_ENV"
@@ -47,4 +51,8 @@ jobs:
         run: bash scripts/aws/verify-publication.sh
       - name: Clean isolated runner credentials
         if: always()
-        run: bash scripts/aws/cleanup.sh
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -f aws-source/scripts/aws/cleanup.sh ]; then
+            bash aws-source/scripts/aws/cleanup.sh
+          fi
