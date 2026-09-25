@@ -35,7 +35,12 @@ const UpdateExistUserAdmin = lazyWithRetry(
 const Preferences = lazyWithRetry(() => import("./pages/Preferences"));
 const Login = lazyWithRetry(() => import("./pages/Login"));
 const VerifyDocument = lazyWithRetry(() => import("./pages/VerifyDocument"));
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/legacy/build/pdf.worker.min.mjs`;
+// Ship the worker matching the installed PDF.js version with the application.
+// The signing flow must remain usable when external CDNs are unavailable.
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  "pdfjs-dist/legacy/build/pdf.worker.min.mjs",
+  import.meta.url
+).toString();
 const AppLoader = () => {
   return (
     <div className="flex justify-center items-center h-[100vh]">

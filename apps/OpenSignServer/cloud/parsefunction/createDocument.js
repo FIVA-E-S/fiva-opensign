@@ -1,5 +1,5 @@
 import savecontact from './savecontact.js';
-import { buildSigningUrl } from './remindDocument.helpers.js';
+import { buildSigningUrl, normalizeSenderName } from './remindDocument.helpers.js';
 import remindDocument from './remindDocument.js';
 
 const isPrefillPlaceholder = placeholder =>
@@ -113,6 +113,10 @@ async function createDocumentWithDelivery(request, deliverInitial) {
         doc.set('IsTourEnabled', _template.IsTourEnabled || false);
         doc.set('AllowModifications', _template.AllowModifications || false);
         doc.set('DocSentAt', new Date());
+        const senderName = request.master ? normalizeSenderName(request.params.senderName) : '';
+        if (senderName) {
+            doc.set('FivaSenderName', senderName);
+        }
         if (normalizedIdempotencyKey) {
             doc.set('FivaIdempotencyKey', normalizedIdempotencyKey);
         }

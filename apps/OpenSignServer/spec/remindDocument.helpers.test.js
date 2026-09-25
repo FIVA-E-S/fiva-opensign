@@ -5,10 +5,12 @@ import {
   buildSigningUrl,
   isSignerAlreadySigned,
   normalizePublicUrl,
+  normalizeSenderName,
   signerIdentity,
 } from '../cloud/parsefunction/remindDocument.helpers.js';
 import { createRemindDocument } from '../cloud/parsefunction/remindDocument.js';
 import { reserveReminderDelivery } from '../cloud/parsefunction/reminderDelivery.js';
+import { signatureMailHeaders } from '../cloud/parsefunction/signatureMailHeaders.js';
 
 let currentDeliveryCollection;
 
@@ -341,11 +343,63 @@ test('remindDocument reuses the existing document and emails only pending signer
   assert.equal(sentMessages.length, 1);
   assert.equal(sentMessages[0].user, creator);
   assert.equal(sentMessages[0].params.recipient, 'pending@example.test');
+  assert.equal(sentMessages[0].params.disableClickTracking, true);
   assert.match(
     sentMessages[0].params.html,
     /https:\/\/sign\.example\.test\/load\/recipientSignPdf\/doc-existing\/contact-pending/
   );
 });
+
+test('signature mail disables link rewriting with and without an SMTP pool', () => {
+  for (const pool of ['', 'transactional']) {
+    const settings = JSON.parse(signatureMailHeaders(pool)['X-SMTPAPI']);
+    assert.deepEqual(settings.filters.clicktrack.settings, { enable: 0, enable_text: 0 });
+    assert.equal(settings.ip_pool, pool || undefined);
+  }
+});
+
+test('normalizeSenderName strips line breaks and rejects non-string values', () => {
+  assert.equal(normalizeSenderName(' Faraday\r\nEnergy '), 'Faraday Energy');
+  assert.equal(normalizeSenderName({ name: 'Faraday' }), '');
+  assert.equal(normalizeSenderName('x'.repeat(200)).length, 128);
+});
+
+for (const brand of ['Faraday', 'SOLUON ENERGY', '']) {
+  test(`remindDocument preserves the document brand or legacy fallback: ${brand || 'legacy'}`, async t => {
+    const previousSender = process.env.SMTP_FROM_NAME;
+    process.env.SMTP_FROM_NAME = 'Tramitaciones Energéticas';
+    t.after(() => {
+      if (previousSender === undefined) delete process.env.SMTP_FROM_NAME;
+      else process.env.SMTP_FROM_NAME = previousSender;
+    });
+    const { creator, document } = reminderDocument({
+      FivaSenderName: brand,
+      RequestBody: '<p>{{sender_name}}: <a href="{{signing_url}}">Firma</a></p>',
+    });
+    installParseMock(t, document);
+    const messages = [];
+    const remind = createTestRemindDocument({
+      now: () => new Date('2026-08-10T10:00:00Z'),
+      sendmail: async message => {
+        messages.push(message);
+        return { status: 'success' };
+      },
+    });
+    await remind({
+      user: creator,
+      params: {
+        documentId: document.id,
+        publicUrl: 'https://sign.example.test',
+        senderName: 'Untrusted override',
+      },
+    });
+    const expectedName = brand || 'Tramitaciones Energéticas';
+    assert.equal(messages.length, 1);
+    assert.equal(messages[0].params.from, expectedName);
+    assert.ok(messages[0].params.html.includes(expectedName));
+    assert.equal(messages[0].params.recipient, 'pending@example.test');
+  });
+}
 
 test('remindDocument renews an expired document before emailing', async t => {
   const { document } = reminderDocument({

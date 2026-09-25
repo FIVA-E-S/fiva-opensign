@@ -5,6 +5,7 @@ import Mailgun from 'mailgun.js';
 import { smtpenable, smtpsecure, updateMailCount } from '../../Utils.js';
 import { createTransport } from 'nodemailer';
 import axios from 'axios';
+import { signatureMailHeaders } from './signatureMailHeaders.js';
 
 function buildFromHeader(displayName, email) {
   const name = (displayName || '').trim();
@@ -17,7 +18,8 @@ function buildFromHeader(displayName, email) {
   return `"${safeName}" <${addr}>`;
 }
 
-function getBaseHeaders() {
+function getBaseHeaders(disableClickTracking = false) {
+  if (disableClickTracking) return signatureMailHeaders();
   const pool = process.env.SENDGRID_IP_POOL;
   return pool ? { 'X-SMTPAPI': JSON.stringify({ ip_pool: pool }) } : undefined;
 }
@@ -173,7 +175,7 @@ async function sendMailProvider(req, plan, monthchange) {
           const mailsender = smtpenable ? smtpMailFrom : process.env.MAILGUN_SENDER;
 
           // SendGrid IP Pool header (SMTP only)
-          const headers = smtpenable ? getBaseHeaders() : undefined;
+          const headers = smtpenable ? getBaseHeaders(req.params.disableClickTracking === true) : undefined;
 
           const messageParams = {
             from: smtpenable
@@ -307,7 +309,7 @@ async function sendMailProvider(req, plan, monthchange) {
 
       const mailsender = smtpenable ? smtpMailFrom : process.env.MAILGUN_SENDER;
 
-      const headers = smtpenable ? getBaseHeaders() : undefined;
+      const headers = smtpenable ? getBaseHeaders(req.params.disableClickTracking === true) : undefined;
 
       const messageParams = {
         from: smtpenable
