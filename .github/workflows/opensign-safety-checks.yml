@@ -8,6 +8,7 @@ on:
       - "apps/OpenSignServer/cloud/parsefunction/remindDocument.js"
       - "apps/OpenSignServer/cloud/parsefunction/signatureMailHeaders.js"
       - "apps/OpenSignServer/cloud/parsefunction/sendMailv3.js"
+      - "apps/OpenSignServer/cloud/parsefunction/mailText.js"
       - "apps/OpenSignServer/cloud/parsefunction/reminderDelivery.js"
       - "apps/OpenSignServer/cloud/parsefunction/durableMongo.js"
       - "apps/OpenSignServer/cloud/parsefunction/signedWebhook.js"
@@ -31,6 +32,7 @@ on:
       - "apps/OpenSignServer/spec/signedWebhook.test.js"
       - "apps/OpenSignServer/spec/webhookOutbox.test.js"
       - "apps/OpenSignServer/spec/documentBeforeSave.test.js"
+      - "apps/OpenSignServer/spec/mailText.test.js"
       - "apps/OpenSign/**"
       - ".github/workflows/opensign-safety-checks.yml"
 
@@ -55,6 +57,7 @@ jobs:
           ./cloud/parsefunction/remindDocument.helpers.js
           ./cloud/parsefunction/remindDocument.js
           ./cloud/parsefunction/signatureMailHeaders.js
+          ./cloud/parsefunction/mailText.js
           ./cloud/parsefunction/reminderDelivery.js
           ./cloud/parsefunction/durableMongo.js
           ./cloud/parsefunction/signedWebhook.js
@@ -71,6 +74,7 @@ jobs:
           ./spec/signedWebhook.test.js
           ./spec/webhookOutbox.test.js
           ./spec/documentBeforeSave.test.js
+          ./spec/mailText.test.js
       - run: node --check cloud/parsefunction/pdf/PDF.js
       - run: >-
           node --test
@@ -79,6 +83,7 @@ jobs:
           spec/signedWebhook.test.js
           spec/webhookOutbox.test.js
           spec/documentBeforeSave.test.js
+          spec/mailText.test.js
 
   opensign-client:
     runs-on: ubuntu-latest
