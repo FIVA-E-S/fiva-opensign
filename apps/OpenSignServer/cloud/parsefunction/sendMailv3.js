@@ -6,6 +6,7 @@ import { smtpenable, smtpsecure, updateMailCount } from '../../Utils.js';
 import { createTransport } from 'nodemailer';
 import axios from 'axios';
 import { signatureMailHeaders } from './signatureMailHeaders.js';
+import { plainTextBody } from './mailText.js';
 
 function buildFromHeader(displayName, email) {
   const name = (displayName || '').trim();
@@ -183,7 +184,7 @@ async function sendMailProvider(req, plan, monthchange) {
               : requestFromName + ' <' + mailsender + '>',
             to: req.params.recipient,
             subject: req.params.subject,
-            text: req.params.text || 'mail',
+            text: plainTextBody(req.params),
             html: req.params.html || '',
             ...(headers ? { headers } : {}),
             attachments: smtpenable ? attachment : undefined,
@@ -317,7 +318,7 @@ async function sendMailProvider(req, plan, monthchange) {
           : requestFromName + ' <' + mailsender + '>',
         to: req.params.recipient,
         subject: req.params.subject,
-        text: req.params.text || 'mail',
+        text: plainTextBody(req.params),
         html: req.params.html || '',
         ...(headers ? { headers } : {}),
         bcc: req.params.bcc ? req.params.bcc : undefined,
